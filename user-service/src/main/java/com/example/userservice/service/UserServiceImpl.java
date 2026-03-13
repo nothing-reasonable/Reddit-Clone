@@ -7,6 +7,7 @@ import com.example.userservice.exception.UserAlreadyExistsException;
 import com.example.userservice.model.User;
 import com.example.userservice.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -18,6 +19,7 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
+    private final PasswordEncoder passwordEncoder;
 
     @Override
     public UserDto createUser(CreateUserRequest request) {
@@ -28,13 +30,12 @@ public class UserServiceImpl implements UserService {
             throw new UserAlreadyExistsException("Username already taken");
         }
 
-        // In a real application, you should hash the password using BCrypt
-        String dummyHashedPassword = "hashed_" + request.getPassword();
+        String hashedPassword = passwordEncoder.encode(request.getPassword());
 
         User user = User.builder()
                 .username(request.getUsername())
                 .email(request.getEmail())
-                .passwordHash(dummyHashedPassword)
+                .passwordHash(hashedPassword)
                 .isActive(true)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
