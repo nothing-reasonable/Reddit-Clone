@@ -37,7 +37,11 @@ public class JwtUtil {
     }
 
     public String generateToken(UserDetails userDetails) {
-        return generateToken(new HashMap<>(), userDetails);
+        Map<String, Object> extraClaims = new HashMap<>();
+        if (userDetails instanceof CustomUserDetails) {
+            extraClaims.put("userId", ((CustomUserDetails) userDetails).getId());
+        }
+        return generateToken(extraClaims, userDetails);
     }
 
     public String generateToken(Map<String, Object> extraClaims, UserDetails userDetails) {
@@ -52,7 +56,16 @@ public class JwtUtil {
 
     public boolean isTokenValid(String token, UserDetails userDetails) {
         final String username = extractUsername(token);
-        return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
+        boolean usernameMatches = username.equals(userDetails.getUsername());
+        
+        boolean userIdMatches = true;
+        if (userDetails instanceof CustomUserDetails) {
+            Number tokenUserIdNum = extractClaim(token, claims -> claims.get("userId", Number.class));
+            Long tokenUserId = tokenUserIdNum != null ? tokenUserIdNum.longValue() : null;
+            userIdMatches = tokenUserId != null && tokenUserId.equals(((CustomUserDetails) userDetails).getId());
+        }
+        
+        return usernameMatches && userIdMatches && !isTokenExpired(token);
     }
 
     private boolean isTokenExpired(String token) {
