@@ -13,12 +13,15 @@ mvn clean compile
 
 3. Start the Spring Boot service:
 
-```bash
-mvn spring-boot:run
-```
-
-All microservices use a centralized Postgres database in Production but use H2 in local development.
 This subreddit service will run on port **8082**.
+
+## Database Setup
+
+To start the PostgreSQL database container:
+
+```bash
+docker run -d --name subredditdb -e POSTGRES_DB=subredditdb -e POSTGRES_PASSWORD=postgres -p 5433:5432 postgres:16
+```
 
 ## Security and Access Rules
 

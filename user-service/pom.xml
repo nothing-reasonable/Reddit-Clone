@@ -56,12 +56,13 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-validation</artifactId>
 		</dependency>
-		<!-- In-memory DB for quick setup and testing -->
+		<!-- DB -->
 		<dependency>
-			<groupId>com.h2database</groupId>
-			<artifactId>h2</artifactId>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
 			<scope>runtime</scope>
 		</dependency>
+
 		<!-- Reduces boilerplate like getters/setters -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>

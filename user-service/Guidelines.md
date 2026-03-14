@@ -17,6 +17,14 @@ mvn clean compile
 mvn spring-boot:run
 ```
 
+## Database Setup
+
+To start the PostgreSQL database container:
+
+```bash
+docker run -d --name userdb -e POSTGRES_DB=userdb -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
+```
+
 ## Security and Access Rules
 
 - Security is configured in [SecurityConfig](src/main/java/com/example/userservice/security/SecurityConfig.java).
