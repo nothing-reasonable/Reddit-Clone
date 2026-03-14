@@ -194,11 +194,10 @@ public class SubredditServiceImpl implements SubredditService {
     @Override
     @Transactional
     public SubredditRuleDto updateRule(String subredditName, Long ruleId, SubredditRuleDto ruleDto) {
-        // Validate subreddit exists
-        subredditRepository.findByName(subredditName)
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
 
-        SubredditRule rule = ruleRepository.findById(ruleId)
+        SubredditRule rule = ruleRepository.findByIdAndSubredditId(ruleId, subreddit.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Rule not found with id: " + ruleId));
 
         if (ruleDto.getTitle() != null) {
@@ -215,10 +214,10 @@ public class SubredditServiceImpl implements SubredditService {
     @Override
     @Transactional
     public void deleteRule(String subredditName, Long ruleId) {
-        subredditRepository.findByName(subredditName)
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
 
-        SubredditRule rule = ruleRepository.findById(ruleId)
+        SubredditRule rule = ruleRepository.findByIdAndSubredditId(ruleId, subreddit.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Rule not found with id: " + ruleId));
 
         ruleRepository.delete(rule);

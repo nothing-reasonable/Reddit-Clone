@@ -17,3 +17,8 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+
+## Service URLs for inter-service communication
+subreddit:
+  service:
+    base-url: ${SUBREDDIT_SERVICE_URL:http://localhost:8082}
