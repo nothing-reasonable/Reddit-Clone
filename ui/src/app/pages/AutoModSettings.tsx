@@ -35,7 +35,10 @@ type ActionType =
   | 'send_modmail'
   | 'lock'
   | 'sticky'
-  | 'set_flair';
+  | 'set_flair'
+  | 'nsfw'
+  | 'contest_mode'
+  | 'suggested_sort';
 
 const ACTION_TYPES: ActionType[] = [
   'approve',
@@ -45,6 +48,9 @@ const ACTION_TYPES: ActionType[] = [
   'lock',
   'sticky',
   'set_flair',
+  'nsfw',
+  'contest_mode',
+  'suggested_sort',
 ];
 
 function isActionType(value: unknown): value is ActionType {
@@ -103,7 +109,11 @@ const ACTION_LABELS: Record<ActionType, string> = {
   lock: 'Lock Post',
   sticky: 'Sticky Post',
   set_flair: 'Set Flair',
+  nsfw: 'Mark NSFW',
+  contest_mode: 'Enable Contest Mode',
+  suggested_sort: 'Set Suggested Sort',
 };
+
 
 const ACTION_COLORS: Record<ActionType, string> = {
   approve: 'text-green-600',
@@ -113,7 +123,11 @@ const ACTION_COLORS: Record<ActionType, string> = {
   lock: 'text-yellow-600',
   sticky: 'text-purple-600',
   set_flair: 'text-teal-600',
+  nsfw: 'text-red-900',
+  contest_mode: 'text-amber-700',
+  suggested_sort: 'text-indigo-700',
 };
+
 
 const ACTION_ICONS: Record<ActionType, typeof Shield> = {
   approve: CheckCircle,
@@ -123,7 +137,11 @@ const ACTION_ICONS: Record<ActionType, typeof Shield> = {
   lock: Lock,
   sticky: Pin,
   set_flair: Tag,
+  nsfw: AlertTriangle,
+  contest_mode: Settings,
+  suggested_sort: ChevronDown,
 };
+
 
 function isNumericCondition(c: ConditionField) {
   return c === 'user_age' || c === 'account_karma';
@@ -244,6 +262,17 @@ export default function AutoModSettings() {
   const [testAge, setTestAge] = useState('30');
   const [testDomain, setTestDomain] = useState('');
   const [testFlair, setTestFlair] = useState('');
+  const [testFlairCssClass, setTestFlairCssClass] = useState('');
+  const [testType, setTestType] = useState('submission');
+  const [testId, setTestId] = useState('');
+  const [testUrl, setTestUrl] = useState('');
+  const [testPostKarma, setTestPostKarma] = useState('100');
+  const [testCommentKarma, setTestCommentKarma] = useState('100');
+  const [testReports, setTestReports] = useState('0');
+  const [testIsEdited, setTestIsEdited] = useState(false);
+  const [testIsTopLevel, setTestIsTopLevel] = useState(true);
+  const [testIsModerator, setTestIsModerator] = useState(false);
+
   const [testResults, setTestResults] = useState<{ rule: string; action: ActionType; message?: string }[]>([]);
   const [testRan, setTestRan] = useState(false);
   const [testLoading, setTestLoading] = useState(false);
@@ -394,13 +423,23 @@ export default function AutoModSettings() {
     const matches: { rule: string; action: ActionType; message?: string }[] = [];
 
     const scenario = {
+      type: testType,
+      id: testId,
+      url: testUrl,
       title: testTitle,
       body: testBody,
       author: testAuthor,
       karma: parseInt(testKarma, 10) || 0,
+      postKarma: parseInt(testPostKarma, 10) || 0,
+      commentKarma: parseInt(testCommentKarma, 10) || 0,
+      reports: parseInt(testReports, 10) || 0,
+      isEdited: testIsEdited,
+      isTopLevel: testIsTopLevel,
+      isModerator: testIsModerator,
       accountAge: parseInt(testAge, 10) || 0,
-      domain: testDomain || testBody,
+      domain: testDomain,
       flair: testFlair,
+      flairCssClass: testFlairCssClass,
     };
 
     try {
@@ -797,6 +836,20 @@ export default function AutoModSettings() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Post Type</label>
+                  <select
+                    value={testType}
+                    onChange={(e) => { setTestType(e.target.value); setTestRan(false); }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm bg-white"
+                  >
+                    <option value="submission">Submission</option>
+                    <option value="link submission">Link submission</option>
+                    <option value="text submission">Text submission</option>
+                    <option value="comment">Comment</option>
+                    <option value="any">Any</option>
+                  </select>
+                </div>
+                <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Post Title</label>
                   <input
                     type="text"
@@ -840,11 +893,58 @@ export default function AutoModSettings() {
                   />
                 </div>
                 <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Post Karma</label>
+                  <input
+                    type="number"
+                    value={testPostKarma}
+                    onChange={(e) => { setTestPostKarma(e.target.value); setTestRan(false); }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Comment Karma</label>
+                  <input
+                    type="number"
+                    value={testCommentKarma}
+                    onChange={(e) => { setTestCommentKarma(e.target.value); setTestRan(false); }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Reports</label>
+                  <input
+                    type="number"
+                    value={testReports}
+                    onChange={(e) => { setTestReports(e.target.value); setTestRan(false); }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                </div>
+                <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Account Age (days)</label>
                   <input
                     type="number"
                     value={testAge}
                     onChange={(e) => { setTestAge(e.target.value); setTestRan(false); }}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Content ID</label>
+                  <input
+                    type="text"
+                    value={testId}
+                    onChange={(e) => { setTestId(e.target.value); setTestRan(false); }}
+                    placeholder="e.g. t3_abc123"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">URL</label>
+                  <input
+                    type="text"
+                    value={testUrl}
+                    onChange={(e) => { setTestUrl(e.target.value); setTestRan(false); }}
+                    placeholder="https://example.com/post"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
@@ -868,6 +968,46 @@ export default function AutoModSettings() {
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Flair CSS Class</label>
+                  <input
+                    type="text"
+                    value={testFlairCssClass}
+                    onChange={(e) => { setTestFlairCssClass(e.target.value); setTestRan(false); }}
+                    placeholder="e.g. mod-approved"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={testIsModerator}
+                    onChange={(e) => { setTestIsModerator(e.target.checked); setTestRan(false); }}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Author is moderator
+                </label>
+                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={testIsEdited}
+                    onChange={(e) => { setTestIsEdited(e.target.checked); setTestRan(false); }}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Content is edited
+                </label>
+                <label className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={testIsTopLevel}
+                    onChange={(e) => { setTestIsTopLevel(e.target.checked); setTestRan(false); }}
+                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                  />
+                  Top-level comment
+                </label>
               </div>
 
               <div className="flex items-center gap-4">

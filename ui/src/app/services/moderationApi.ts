@@ -1,13 +1,26 @@
 const MODERATION_SERVICE_URL = 'http://localhost:8084';
 
 export interface TestScenario {
+  type?: string;
+  id?: string;
+  url?: string;
   title: string;
   body: string;
   author: string;
   karma: number;
+  postKarma?: number;
+  commentKarma?: number;
   accountAge: number;
   domain: string;
   flair: string;
+  flairCssClass?: string;
+  reports?: number;
+  isEdited?: boolean;
+  isTopLevel?: boolean;
+  isModerator?: boolean;
+  parentSubmission?: Record<string, unknown>;
+  mediaEmbed?: Record<string, unknown>;
+  secureMediaEmbed?: Record<string, unknown>;
 }
 
 export interface TestPlaygroundRequest {
