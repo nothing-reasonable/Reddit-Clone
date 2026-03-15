@@ -25,6 +25,7 @@ interface SubredditDto {
   bannerUrl?: string;
   iconUrl?: string;
   creatorUsername?: string;
+  archived?: boolean;
   memberCount?: number;
   rules?: SubredditRuleDto[];
   flairs?: string[];
@@ -69,6 +70,7 @@ function mapToSubreddit(dto: SubredditDto): Subreddit {
     flairs: dto.flairs ?? [],
     createdAt: dto.createdAt ? new Date(dto.createdAt) : new Date(),
     isNSFW: dto.isNsfw ?? false,
+    archived: dto.archived ?? false,
   };
 }
 
@@ -138,4 +140,68 @@ export async function createSubreddit(
 
   const dto = (await response.json()) as SubredditDto;
   return mapToSubreddit(dto);
+}
+
+export async function joinSubredditMembership(token: string, subredditName: string): Promise<void> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/join`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+}
+
+export async function leaveSubredditMembership(token: string, subredditName: string): Promise<void> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/join`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+}
+
+export async function resignModeratorRole(token: string, subredditName: string): Promise<void> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/moderator/resign`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+}
+
+export async function requestSubredditTakeover(token: string, subredditName: string): Promise<void> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/takeover-requests`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
 }

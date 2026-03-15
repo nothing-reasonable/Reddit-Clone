@@ -44,6 +44,9 @@ public class Subreddit {
     @Column(nullable = false)
     private String creatorUsername;
 
+    @Column(nullable = false)
+    private boolean archived;
+
     @OneToMany(mappedBy = "subreddit", cascade = CascadeType.ALL, orphanRemoval = true)
     @OrderBy("orderIndex ASC")
     @Builder.Default

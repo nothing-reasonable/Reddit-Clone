@@ -14,6 +14,7 @@ public interface SubredditMemberRepository extends JpaRepository<SubredditMember
     List<SubredditMember> findByUsername(String username);
     Optional<SubredditMember> findBySubredditIdAndUsername(Long subredditId, String username);
     long countBySubredditId(Long subredditId);
+    long countBySubredditIdAndRole(Long subredditId, MemberRole role);
     boolean existsBySubredditIdAndUsername(Long subredditId, String username);
     List<SubredditMember> findBySubredditIdAndRole(Long subredditId, MemberRole role);
 }

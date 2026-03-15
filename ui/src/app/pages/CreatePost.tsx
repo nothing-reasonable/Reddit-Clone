@@ -49,6 +49,7 @@ export default function CreatePost() {
   }, [initialSub]);
 
   const selectedSub = subreddits.find((s) => s.name === selectedSubreddit);
+  const selectedSubIsArchived = !!selectedSub?.archived;
 
   if (!isAuthenticated) {
     return (
@@ -78,6 +79,10 @@ export default function CreatePost() {
       toast.error('Please log in again to post');
       return;
     }
+    if (selectedSubIsArchived) {
+      toast.error('This community is archived. Posting is disabled.');
+      return;
+    }
 
     try {
       await createPost(token, selectedSubreddit, {
@@ -89,8 +94,8 @@ export default function CreatePost() {
       });
       toast.success('Post created successfully!');
       navigate(`/r/${selectedSubreddit}`);
-    } catch {
-      toast.error('Failed to create post');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to create post');
     }
   };
 
@@ -123,14 +128,27 @@ export default function CreatePost() {
             {subreddits.map((sub) => (
               <button
                 key={sub.name}
-                onClick={() => { setSelectedSubreddit(sub.name); setShowSubSelect(false); setFlair(''); }}
+                onClick={() => {
+                  if (sub.archived) {
+                    return;
+                  }
+                  setSelectedSubreddit(sub.name);
+                  setShowSubSelect(false);
+                  setFlair('');
+                }}
+                disabled={sub.archived}
                 className={`flex items-center gap-2 w-full px-4 py-2 hover:bg-gray-50 text-left ${
                   selectedSubreddit === sub.name ? 'bg-blue-50' : ''
                 }`}
               >
                 <span className="text-lg">{sub.icon}</span>
                 <div>
-                  <div className="font-medium text-sm">r/{sub.name}</div>
+                  <div className="font-medium text-sm flex items-center gap-2">
+                    <span>r/{sub.name}</span>
+                    {sub.archived && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-700">Archived</span>
+                    )}
+                  </div>
                   <div className="text-xs text-gray-500">{sub.description}</div>
                 </div>
               </button>
@@ -138,6 +156,12 @@ export default function CreatePost() {
           </div>
         )}
       </div>
+
+      {selectedSubIsArchived && (
+        <div className="mb-3 bg-amber-50 border border-amber-200 rounded p-3 text-sm text-amber-700">
+          r/{selectedSubreddit} is archived. Posting is disabled.
+        </div>
+      )}
 
       <div className="bg-white border border-gray-300 rounded overflow-hidden">
         {/* Post Type Tabs */}
@@ -276,7 +300,12 @@ export default function CreatePost() {
             </button>
             <button
               type="submit"
-              className="px-6 py-1.5 bg-blue-500 text-white rounded-full text-sm font-semibold hover:bg-blue-600"
+              disabled={selectedSubIsArchived}
+              className={`px-6 py-1.5 text-white rounded-full text-sm font-semibold ${
+                selectedSubIsArchived
+                  ? 'bg-gray-400 cursor-not-allowed'
+                  : 'bg-blue-500 hover:bg-blue-600'
+              }`}
             >
               Post
             </button>

@@ -58,6 +58,7 @@ export interface Subreddit {
   flairs: string[];
   createdAt: Date;
   isNSFW?: boolean;
+  archived?: boolean;
 }
 
 export interface ModLogEntry {

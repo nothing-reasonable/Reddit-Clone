@@ -85,6 +85,24 @@ public class SubredditController {
         return ResponseEntity.noContent().build();
     }
 
+    @PostMapping("/{name}/moderator/resign")
+    public ResponseEntity<Void> resignModeratorRole(
+            @PathVariable String name,
+            Authentication authentication
+    ) {
+        subredditService.resignModeratorRole(name, authentication.getName());
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/{name}/takeover-requests")
+    public ResponseEntity<Void> requestTakeover(
+            @PathVariable String name,
+            Authentication authentication
+    ) {
+        subredditService.requestTakeover(name, authentication.getName());
+        return new ResponseEntity<>(HttpStatus.CREATED);
+    }
+
     @GetMapping("/{name}/members")
     public ResponseEntity<List<SubredditMemberDto>> getSubredditMembers(@PathVariable String name) {
         return ResponseEntity.ok(subredditService.getMembers(name));

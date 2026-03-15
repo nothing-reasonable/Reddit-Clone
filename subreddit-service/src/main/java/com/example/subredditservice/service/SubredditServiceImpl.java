@@ -7,6 +7,7 @@ import com.example.subredditservice.model.*;
 import com.example.subredditservice.repository.SubredditMemberRepository;
 import com.example.subredditservice.repository.SubredditRepository;
 import com.example.subredditservice.repository.SubredditRuleRepository;
+import com.example.subredditservice.repository.SubredditTakeoverRequestRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +23,7 @@ public class SubredditServiceImpl implements SubredditService {
     private final SubredditRepository subredditRepository;
     private final SubredditRuleRepository ruleRepository;
     private final SubredditMemberRepository memberRepository;
+    private final SubredditTakeoverRequestRepository takeoverRequestRepository;
 
     // ───── Subreddit CRUD ─────
 
@@ -47,6 +49,7 @@ public class SubredditServiceImpl implements SubredditService {
                 .type(communityType)
                 .isNsfw(request.isNsfw())
                 .creatorUsername(creatorUsername)
+            .archived(false)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -133,6 +136,10 @@ public class SubredditServiceImpl implements SubredditService {
         Subreddit subreddit = subredditRepository.findByName(subredditName)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
 
+        if (subreddit.isArchived()) {
+            throw new IllegalStateException("r/" + subredditName + " is archived and cannot be joined.");
+        }
+
         if (memberRepository.existsBySubredditIdAndUsername(subreddit.getId(), username)) {
             throw new IllegalStateException("Already a member of r/" + subredditName);
         }
@@ -157,7 +164,79 @@ public class SubredditServiceImpl implements SubredditService {
         SubredditMember member = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username)
                 .orElseThrow(() -> new IllegalStateException("Not a member of r/" + subredditName));
 
+        if (member.getRole() == MemberRole.MODERATOR) {
+            long moderatorCount = memberRepository.countBySubredditIdAndRole(subreddit.getId(), MemberRole.MODERATOR);
+            if (moderatorCount <= 1) {
+                throw new IllegalStateException(
+                        "You are the only moderator of r/" + subredditName +
+                                ". Leave the moderator role first, then leave the community."
+                );
+            }
+        }
+
         memberRepository.delete(member);
+
+        long moderatorsRemaining = memberRepository.countBySubredditIdAndRole(subreddit.getId(), MemberRole.MODERATOR);
+        if (moderatorsRemaining == 0 && !subreddit.isArchived()) {
+            subreddit.setArchived(true);
+            subreddit.setUpdatedAt(LocalDateTime.now());
+            subredditRepository.save(subreddit);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void resignModeratorRole(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        SubredditMember member = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username)
+                .orElseThrow(() -> new IllegalStateException("Not a member of r/" + subredditName));
+
+        if (member.getRole() != MemberRole.MODERATOR) {
+            throw new IllegalStateException("You are not a moderator of r/" + subredditName);
+        }
+
+        member.setRole(MemberRole.MEMBER);
+        memberRepository.save(member);
+
+        long moderatorsRemaining = memberRepository.countBySubredditIdAndRole(subreddit.getId(), MemberRole.MODERATOR);
+        if (moderatorsRemaining == 0 && !subreddit.isArchived()) {
+            subreddit.setArchived(true);
+            subreddit.setUpdatedAt(LocalDateTime.now());
+            subredditRepository.save(subreddit);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void requestTakeover(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        if (!subreddit.isArchived()) {
+            throw new IllegalStateException("Takeover requests are only allowed for archived communities.");
+        }
+
+        boolean alreadyPending = takeoverRequestRepository
+                .existsBySubredditIdAndRequesterUsernameAndStatus(
+                        subreddit.getId(),
+                        username,
+                        TakeoverRequestStatus.PENDING
+                );
+
+        if (alreadyPending) {
+            throw new IllegalStateException("You already have a pending takeover request for r/" + subredditName);
+        }
+
+        SubredditTakeoverRequest request = SubredditTakeoverRequest.builder()
+                .subredditId(subreddit.getId())
+                .requesterUsername(username)
+                .status(TakeoverRequestStatus.PENDING)
+                .requestedAt(LocalDateTime.now())
+                .build();
+
+        takeoverRequestRepository.save(request);
     }
 
     @Override
@@ -281,6 +360,7 @@ public class SubredditServiceImpl implements SubredditService {
                 .bannerUrl(subreddit.getBannerUrl())
                 .iconUrl(subreddit.getIconUrl())
                 .creatorUsername(subreddit.getCreatorUsername())
+                .archived(subreddit.isArchived())
                 .memberCount(memberCount)
                 .rules(ruleDtos)
                 .flairs(subreddit.getFlairs())

@@ -30,6 +30,23 @@ interface PaginatedResponse<T> {
   };
 }
 
+interface ApiError {
+  message?: string;
+  [key: string]: unknown;
+}
+
+async function parseApiError(response: Response): Promise<string> {
+  try {
+    const data = (await response.json()) as ApiError;
+    if (data.message) {
+      return data.message;
+    }
+  } catch {
+    // fall through
+  }
+  return `Request failed (${response.status})`;
+}
+
 function mapPost(dto: ContentPostDto): Post {
   return {
     id: dto.id,
@@ -112,7 +129,7 @@ export async function createPost(
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to create post (${response.status})`);
+    throw new Error(await parseApiError(response));
   }
 
   const dto = (await response.json()) as ContentPostDto;

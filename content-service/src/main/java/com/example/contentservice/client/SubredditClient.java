@@ -2,6 +2,7 @@ package com.example.contentservice.client;
 
 import com.example.contentservice.exception.DownstreamServiceException;
 import com.example.contentservice.exception.ResourceNotFoundException;
+import lombok.Data;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
@@ -20,7 +21,7 @@ public class SubredditClient {
 
     public void assertSubredditExists(String subredditName) {
         try {
-            restClient.get()
+            SubredditLookupResponse subreddit = restClient.get()
                     .uri("/api/subreddits/{name}", subredditName)
                     .retrieve()
                     .onStatus(HttpStatusCode::isError, (request, response) -> {
@@ -32,7 +33,11 @@ public class SubredditClient {
                                 null,
                                 null);
                     })
-                    .toBodilessEntity();
+                    .body(SubredditLookupResponse.class);
+
+            if (subreddit != null && Boolean.TRUE.equals(subreddit.getArchived())) {
+                throw new IllegalStateException("r/" + subredditName + " is archived. Posting is disabled.");
+            }
         } catch (RestClientResponseException ex) {
             if (ex.getStatusCode().value() == 404) {
                 throw new ResourceNotFoundException("Subreddit not found: r/" + subredditName);
@@ -41,5 +46,10 @@ public class SubredditClient {
         } catch (RestClientException ex) {
             throw new DownstreamServiceException("Unable to validate subreddit right now", ex);
         }
+    }
+
+    @Data
+    private static class SubredditLookupResponse {
+        private Boolean archived;
     }
 }

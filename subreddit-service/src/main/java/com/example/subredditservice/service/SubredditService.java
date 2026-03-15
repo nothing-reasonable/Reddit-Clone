@@ -18,6 +18,8 @@ public interface SubredditService {
     // Membership
     SubredditMemberDto joinSubreddit(String subredditName, String username);
     void leaveSubreddit(String subredditName, String username);
+    void resignModeratorRole(String subredditName, String username);
+    void requestTakeover(String subredditName, String username);
     List<SubredditMemberDto> getMembers(String subredditName);
 
     // Rules

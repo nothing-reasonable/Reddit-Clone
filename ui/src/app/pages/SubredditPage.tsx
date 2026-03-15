@@ -7,7 +7,13 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
-import { getSubredditByName } from '../services/subredditApi';
+import {
+  getSubredditByName,
+  joinSubredditMembership,
+  leaveSubredditMembership,
+  resignModeratorRole,
+  requestSubredditTakeover,
+} from '../services/subredditApi';
 import { getSubredditPosts } from '../services/contentApi';
 import type { Post, Subreddit } from '../types/domain';
 
@@ -23,12 +29,14 @@ export default function SubredditPage() {
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [loadingSubreddit, setLoadingSubreddit] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const { user, isAuthenticated } = useAuth();
+  const [membershipUpdating, setMembershipUpdating] = useState(false);
+  const [takeoverRequesting, setTakeoverRequesting] = useState(false);
+  const [takeoverRequested, setTakeoverRequested] = useState(false);
+  const { user, isAuthenticated, token } = useAuth();
   const {
     joinSubreddit,
     leaveSubreddit,
     isJoined,
-    isModerator: isSubredditModerator,
     applyAsModerator,
     pendingModApplications,
   } = useSubreddit();
@@ -103,17 +111,92 @@ export default function SubredditPage() {
 
   const joined = isJoined(subreddit || '');
   const isModerator =
-    isSubredditModerator(subreddit || '') ||
     (subredditData?.moderators ?? []).some(
       (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
     ) ||
     false;
   const hasPendingApplication = pendingModApplications.includes(subreddit || '');
 
-  const handleJoinLeave = () => {
-    if (!isAuthenticated) { toast.error('Please log in to join communities'); return; }
-    if (joined) { leaveSubreddit(subreddit || ''); toast.success(`Left r/${subreddit}`); }
-    else { joinSubreddit(subreddit || ''); toast.success(`Joined r/${subreddit}!`); }
+  const handleJoinLeave = async () => {
+    if (!isAuthenticated || !token) {
+      toast.error('Please log in to join communities');
+      return;
+    }
+
+    if (!subreddit) {
+      return;
+    }
+
+    setMembershipUpdating(true);
+    try {
+      if (!joined && subredditData?.archived) {
+        toast.error('This community is archived. Join is disabled.');
+        return;
+      }
+
+      if (joined) {
+        await leaveSubredditMembership(token, subreddit);
+        leaveSubreddit(subreddit);
+        toast.success(`Left r/${subreddit}`);
+      } else {
+        await joinSubredditMembership(token, subreddit);
+        joinSubreddit(subreddit);
+        toast.success(`Joined r/${subreddit}!`);
+      }
+
+      const refreshed = await getSubredditByName(subreddit);
+      if (refreshed) {
+        setSubredditData(refreshed);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not update membership.');
+    } finally {
+      setMembershipUpdating(false);
+    }
+  };
+
+  const handleRequestTakeover = async () => {
+    if (!isAuthenticated || !token || !subreddit) {
+      toast.error('Please log in to request subreddit takeover.');
+      return;
+    }
+
+    setTakeoverRequesting(true);
+    try {
+      await requestSubredditTakeover(token, subreddit);
+      setTakeoverRequested(true);
+      toast.success('Takeover request submitted. Reddit admins will review it.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not submit takeover request.');
+    } finally {
+      setTakeoverRequesting(false);
+    }
+  };
+
+  const handleResignModeratorRole = async () => {
+    if (!isAuthenticated || !token) {
+      toast.error('Please log in to update moderator status');
+      return;
+    }
+
+    if (!subreddit) {
+      return;
+    }
+
+    setMembershipUpdating(true);
+    try {
+      await resignModeratorRole(token, subreddit);
+      joinSubreddit(subreddit, 'member');
+      const refreshed = await getSubredditByName(subreddit);
+      if (refreshed) {
+        setSubredditData(refreshed);
+      }
+      toast.success('You left the moderator team. You can now leave the community.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not leave moderator role.');
+    } finally {
+      setMembershipUpdating(false);
+    }
   };
 
   const handleApplyModerator = () => {
@@ -121,10 +204,6 @@ export default function SubredditPage() {
     if (!joined) { toast.error('You must be a member to apply as moderator'); return; }
     applyAsModerator(subreddit || '');
     toast.success('Application submitted!');
-    setTimeout(() => {
-      joinSubreddit(subreddit || '', 'moderator');
-      toast.success(`You are now a moderator of r/${subreddit}!`, { description: 'Check out the Mod Tools' });
-    }, 2000);
   };
 
   if (loadingSubreddit) {
@@ -185,12 +264,22 @@ export default function SubredditPage() {
                 <h1 className="text-xl font-bold">r/{subredditData.name}</h1>
                 <button
                   onClick={handleJoinLeave}
+                  disabled={membershipUpdating || (!joined && !!subredditData.archived)}
                   className={`px-5 py-1 rounded-full text-sm font-semibold transition-colors ${
                     joined ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' : 'bg-blue-500 text-white hover:bg-blue-600'
-                  }`}
+                  } ${membershipUpdating || (!joined && !!subredditData.archived) ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
-                  {joined ? 'Joined' : 'Join'}
+                  {joined ? 'Joined' : subredditData.archived ? 'Archived' : 'Join'}
                 </button>
+                {isModerator && (
+                  <button
+                    onClick={handleResignModeratorRole}
+                    disabled={membershipUpdating}
+                    className={`px-3 py-1 border border-amber-300 text-amber-700 rounded-full text-sm font-semibold hover:bg-amber-50 transition-colors ${membershipUpdating ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    Leave Mod Role
+                  </button>
+                )}
                 {/* Apply as Moderator - visible next to community name */}
                 {!isModerator && !hasPendingApplication && isAuthenticated && joined && (
                   <button
@@ -215,6 +304,20 @@ export default function SubredditPage() {
                 )}
               </div>
               <p className="text-sm text-gray-500">r/{subredditData.name}</p>
+              {subredditData.archived && (
+                <p className="text-xs text-amber-700 mt-1">This community is archived because it currently has no active moderators.</p>
+              )}
+              {subredditData.archived && !isModerator && isAuthenticated && (
+                <div className="mt-2">
+                  <button
+                    onClick={handleRequestTakeover}
+                    disabled={takeoverRequesting || takeoverRequested}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold border border-blue-300 text-blue-700 hover:bg-blue-50 ${takeoverRequesting || takeoverRequested ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  >
+                    {takeoverRequested ? 'Takeover Requested' : 'Request This Subreddit'}
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Mod Tools Button */}
@@ -266,7 +369,7 @@ export default function SubredditPage() {
         {/* Main Content */}
         <div className="flex-1 min-w-0">
           {/* Create Post */}
-          {isAuthenticated && (
+          {isAuthenticated && !subredditData.archived && (
             <Link
               to={`/submit?subreddit=${subreddit}`}
               className="flex items-center gap-3 bg-white border border-gray-300 rounded p-2 mb-3 hover:border-gray-400 transition-colors"
@@ -278,6 +381,11 @@ export default function SubredditPage() {
                 Create Post
               </div>
             </Link>
+          )}
+          {isAuthenticated && subredditData.archived && (
+            <div className="bg-amber-50 border border-amber-200 text-amber-700 rounded p-3 mb-3 text-sm">
+              Posting is disabled because this community is archived.
+            </div>
           )}
 
           {/* Sort Options */}
@@ -342,6 +450,11 @@ export default function SubredditPage() {
               <h2 className="font-bold text-white text-sm">About Community</h2>
             </div>
             <div className="p-4">
+              {subredditData.archived && (
+                <div className="mb-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2.5">
+                  Archived community: users can request moderator takeover through admin review.
+                </div>
+              )}
               <p className="text-sm text-gray-700 mb-3">{subredditData.longDescription || subredditData.description}</p>
 
               <div className="flex gap-4 py-3 border-t border-b border-gray-200 mb-3">
@@ -468,6 +581,9 @@ export default function SubredditPage() {
                     u/{mod}
                   </Link>
                 ))}
+                {subredditData.moderators.length === 0 && (
+                  <div className="text-xs text-gray-500">No active moderators</div>
+                )}
               </div>
             </div>
           </div>

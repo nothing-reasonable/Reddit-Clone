@@ -18,6 +18,7 @@ public class SubredditDto {
     private String bannerUrl;
     private String iconUrl;
     private String creatorUsername;
+    private boolean archived;
     private long memberCount;
     private List<SubredditRuleDto> rules;
     private List<String> flairs;
