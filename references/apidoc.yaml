@@ -1,0 +1,5722 @@
+openapi: 3.0.3
+info:
+  title: Reddit API
+  description: |
+    REST API for a Reddit. Supports user authentication,
+    community management, posts, comments, voting, moderation tools, and search.
+
+    ## Versioning
+    The API is versioned via the URL path. The current stable version is **v1**.
+
+    | Version | Base Path    | Status  |
+    |---------|--------------|---------|
+    | v1      | `/api/v1`    | Current |
+
+    All endpoints are prefixed with `/api/{version}`. When a new version is
+    released, older versions will continue to work for a deprecation window of
+    **12 months** and will return a `Sunset` header indicating the removal date:
+    ```
+    Sunset: Sat, 28 Feb 2027 00:00:00 GMT
+    Deprecation: true
+    ```
+
+    ## Authentication
+    Most endpoints require a valid session. Authenticate via `POST /auth/sessions`
+    to receive a bearer token. Include it in subsequent requests:
+
+    ```
+    Authorization: Bearer <token>
+    ```
+
+    ## Rate Limiting
+    Requests are rate-limited to **60 requests per minute** per user.
+    Unauthenticated requests are limited to **10/min** by IP.
+
+    | Header                  | Description                |
+    |-------------------------|----------------------------|
+    | `X-RateLimit-Remaining` | Requests left this window  |
+    | `X-RateLimit-Reset`     | Seconds until window reset |
+
+    ## Errors
+    All errors return a consistent JSON body:
+    ```json
+    {
+      "error": {
+        "code": "not_found",
+        "message": "The requested resource does not exist."
+      }
+    }
+    ```
+
+    ## Pagination
+    List endpoints accept `limit` (default 25, max 100) and `after` (cursor)
+    query parameters. Responses include a `pagination` object:
+    ```json
+    {
+      "data": [...],
+      "pagination": {
+        "after": "t3_abc123",
+        "count": 25,
+        "has_more": true
+      }
+    }
+    ```
+  version: 1.1.2
+  contact:
+    name: CS-326 Team
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3000/api/{version}
+    description: Local development
+    variables:
+      version:
+        default: v1
+        enum: [v1]
+        description: API version
+  - url: https://api.example.com/api/{version}
+    description: Production
+    variables:
+      version:
+        default: v1
+        enum: [v1]
+        description: API version
+
+tags:
+  - name: Auth
+    description: Account creation, login, and session management.
+  - name: Subreddits
+    description: Community creation, membership, and metadata.
+  - name: Search
+    description: Full-text search across posts, communities, and comments.
+  - name: Community Settings
+    description: Subreddit configuration, rules, and flairs.
+  - name: Posts
+    description: Create, read, vote on, and manage posts (links, text, images, videos).
+  - name: Comments
+    description: Threaded comments on posts.
+  # - name: Users
+  #   description: Public user profiles and content history.
+  # - name: Messages
+  #   description: Private direct messages between users.
+  # - name: Notifications
+  #   description: In-app notifications (replies, mentions, awards).
+  #   NOTE: Users, Messages, and Notifications sections are commented out.
+
+  - name: Moderation
+    description: Post/comment moderation actions (remove, lock, pin).
+  - name: Banned Users
+    description: Subreddit-level user bans.
+
+  - name: Mod Queue
+    description: Review flagged and reported content.
+  - name: Mod Mail
+    description: Moderator-to-user and team communication.
+  - name: AutoMod
+    description: Automated moderation rules and testing.
+  - name: Mod Log
+    description: Audit trail of moderator actions.
+  - name: Traffic Stats
+    description: Subreddit analytics and growth metrics.
+  - name: Sidebar
+    description: Community sidebar — a single static content page.
+  - name: Wiki
+    description: Community wiki pages with hierarchical structure.
+
+security:
+  - bearerAuth: []
+
+# ──────────────────────────────────────────────
+# PATHS
+# ──────────────────────────────────────────────
+paths:
+
+  # ── Auth ────────────────────────────────────
+  /auth/sessions:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Log in
+      description: |
+        Authenticates a user with their username and password and creates a new
+        session. Returns a bearer token that must be included in the
+        `Authorization` header of all subsequent authenticated requests.
+
+        The token is valid until explicitly invalidated via `DELETE /auth/sessions`
+        (log out). If the credentials are incorrect, the endpoint returns
+        `401 Unauthorized` without revealing which field was wrong.
+
+        **Body parameters**
+
+        | Field      | Type   | Required | Description                  |
+        |------------|--------|----------|------------------------------|
+        | `username` | string | Yes      | The user's unique username.  |
+        | `password` | string | Yes      | The user's password (min 6). |
+
+        **Returns**
+
+        A JSON object containing a `token` string (bearer token) and a
+        [User](#/components/schemas/User) object for the authenticated account.
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  example: johndoe
+                password:
+                  type: string
+                  format: password
+                  minLength: 6
+                  example: "s3cret"
+      responses:
+        "200":
+          description: Logged in successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                    example: eyJhbGciOiJIUzI1NiIs...
+                  user:
+                    $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Auth]
+      summary: Log out
+      description: |
+        Invalidates the current session token, effectively logging the user out.
+
+        After this call, the bearer token used in the `Authorization` header
+        will no longer be accepted by any endpoint. The client should discard
+        the token from local storage.
+
+        This endpoint is **idempotent** — calling it multiple times with the
+        same token has no additional effect.
+
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Logged out.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /users:
+    post:
+      tags: [Auth]
+      security: []
+      summary: Create account
+      description: |
+        Registers a new user account on the platform.
+
+        Usernames must be **3 or more characters** and can only contain
+        alphanumeric characters and underscores. Passwords must be at least
+        **6 characters** long. The email must be a valid format and cannot
+        already be associated with an existing account.
+
+        Upon successful registration, the user is automatically logged in and
+        a bearer token is returned (identical to the login response). The new
+        account starts with **1 karma** point.
+
+        **Validation rules:**
+        | Field      | Rule                                   |
+        |------------|----------------------------------------|
+        | `username` | 3+ chars, alphanumeric + underscores   |
+        | `email`    | Valid email, must be unique            |
+        | `password` | 6+ characters                          |
+
+      operationId: signup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, email, password]
+              properties:
+                username:
+                  type: string
+                  minLength: 3
+                  example: janedoe
+                email:
+                  type: string
+                  format: email
+                  example: jane@example.com
+                password:
+                  type: string
+                  format: password
+                  minLength: 6
+      responses:
+        "201":
+          description: Account created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    $ref: "#/components/schemas/User"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Username or email already taken.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /auth/me:
+    get:
+      tags: [Auth]
+      summary: Get current user
+      description: |
+        Returns the profile of the currently authenticated user.
+
+        This is a convenience endpoint — it returns the same data as
+        `GET /users/{username}` but automatically resolves to the user
+        associated with the provided bearer token. This is useful for clients
+        that need to fetch the logged-in user's profile without knowing the
+        username in advance (e.g., after token refresh).
+
+      operationId: getMe
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Posts ───────────────────────────────────
+  /posts:
+    get:
+      tags: [Posts]
+      security: []
+      summary: List posts (home feed)
+      description: |
+        Returns a paginated list of posts from all communities. This is the
+        primary endpoint powering the global home feed.
+
+        Posts can be sorted using the `sort` parameter. When using `top`,
+        the `t` parameter controls the time window. Results are paginated
+        via cursor-based pagination using `limit` and `after`.
+
+        This endpoint is **publicly accessible** — no authentication required.
+        Authenticated users see the same results (the home feed is not
+        personalized by subscription in this version).
+
+        **Parameters**
+
+        | Parameter | In    | Required | Description                                           |
+        |-----------|-------|----------|-------------------------------------------------------|
+        | `sort`    | query | No       | Sort strategy: `hot`, `new`, `top` (default: `hot`).  |
+        | `t`       | query | No       | Time window for `top`: `hour`, `day`, `week`, `month`, `year`, `all`. |
+        | `limit`   | query | No       | Number of items to return (1–100, default 25).        |
+        | `after`   | query | No       | Cursor from a previous `pagination.after` value.      |
+
+        **Returns**
+
+        A JSON object with a `data` array of [Post](#/components/schemas/Post)
+        objects and a `pagination` object for cursor-based navigation.
+      operationId: listPosts
+      parameters:
+        - $ref: "#/components/parameters/SortParam"
+        - $ref: "#/components/parameters/TopDurationParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/AfterParam"
+      responses:
+        "200":
+          description: A paginated list of posts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Post"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+
+  /r/{subreddit}/posts:
+    get:
+      tags: [Posts]
+      security: []
+      summary: List posts in a subreddit
+      description: |
+        Returns a paginated list of posts belonging to the specified community.
+
+        This is the primary endpoint for rendering a subreddit's post feed.
+        Posts are filtered to only those submitted to the given subreddit. All
+        the same sort and pagination options as the global feed are available.
+
+        Pinned posts are always returned first, regardless of the sort order.
+        The endpoint returns `404` if the subreddit does not exist.
+
+      operationId: listSubredditPosts
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - $ref: "#/components/parameters/SortParam"
+        - $ref: "#/components/parameters/TopDurationParam"
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/AfterParam"
+      responses:
+        "200":
+          description: A list of posts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Post"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Posts]
+      summary: Create a post
+      description: |
+        Creates a new post in the specified subreddit.
+
+        Three post types are supported:
+        - **`text`** — A self-post with a title and body text. The `content`
+          field is required. Text posts may also contain **inline images and
+          videos** — upload media first via `POST /media`, then
+          reference the returned asset IDs in the `mediaAssets` array. The
+          `content` field can use Markdown image syntax
+          (`![caption](assetId)`) to position media inline.
+        - **`link`** — A link submission. The `url` field is required and must
+          be a valid HTTP(S) URL.
+        - **`image`** — An image post. The `url` field must point to a
+          supported image format (JPEG, PNG, GIF, WebP).
+
+        The authenticated user becomes the `author` of the post. Posts start
+        with 1 upvote (the author's implicit self-vote) and 0 downvotes.
+
+        You may optionally attach a `flair` to the post. The flair must be one
+        of the flairs configured for the target subreddit (see
+        `GET /r/{subreddit}/flairs`).
+
+        The authenticated user must not be banned from the target subreddit.
+
+      operationId: createPost
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostCreate"
+      responses:
+        "201":
+          description: Post created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /posts/{postId}:
+    get:
+      tags: [Posts]
+      security: []
+      summary: Get a post
+      description: |
+        Retrieves the full details of a post by its globally unique ID.
+
+        The response includes the post's current score, comment count, awards,
+        flair, moderation flags, and the `subreddit` it belongs to.
+
+        This endpoint is **publicly accessible** — no authentication is required.
+        However, user-specific fields like `saved` will only be populated when a
+        valid bearer token is provided.
+
+      operationId: getPost
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+      responses:
+        "200":
+          description: Post details.
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: An opaque identifier for the specific version of the resource. Use this in the If-Match header for subsequent PATCH requests to prevent lost updates.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    patch:
+      tags: [Posts]
+      summary: Update a post
+      description: |
+        Updates the specified post by setting the values of the parameters passed.
+        Any parameters not provided will be left unchanged.
+
+        Only the **original author** of the post can update it. Attempting to
+        update another user's post returns a `403 Forbidden` error. Moderators
+        who wish to alter a post should use the moderation-specific endpoints
+        (e.g., remove, lock, pin) instead.
+
+        You may update the `title`, `content`, `flair`, and/or `mediaAssets`
+        of a post. The post `type` cannot be changed after creation. When a
+        post is successfully updated, the `editedAt` timestamp is set to the
+        current time, and an "(edited)" indicator becomes visible to other
+        users.
+
+        To add or remove inline media from a text post, update both the
+        `content` (adjusting Markdown image references) and the `mediaAssets`
+        array.
+
+        **Restrictions:**
+        - The post must not be removed or locked.
+        - `title` must be between 1 and 300 characters if provided.
+        - `content` must be non-empty for text posts if provided.
+        - All asset IDs in `mediaAssets` must belong to the authenticated user.
+
+      operationId: updatePost
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+        - name: If-Match
+          in: header
+          description: |
+            The ETag of the current version of the post. Used to prevent
+            concurrent updates from overwriting each other.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PostUpdate"
+            example:
+              title: "Understanding Big O Notation (Updated)"
+              content: "Big O notation describes the upper bound of an algorithm's time complexity. Here's a corrected explanation..."
+      responses:
+        "200":
+          description: |
+            Returns the updated post object. The `editedAt` field will reflect
+            the time of this update.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            The authenticated user is not the author of this post, or the post
+            is locked/removed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: forbidden
+                  message: You can only edit your own posts.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: [Posts]
+      summary: Delete a post
+      description: |
+        Soft-deletes (redacts) a post authored by the authenticated user.
+
+        This performs a **redaction**, not a true deletion — the post record
+        is retained in the database but its visible content is scrubbed.
+        This is consistent with how Reddit handles user-initiated deletions:
+        the resource still exists so that comment threads remain coherent.
+
+        Only the **original author** of the post can delete it via this endpoint.
+        Moderators should use
+        `PATCH /r/{subreddit}/posts/{postId}/moderation` with
+        `status: removed` to hide rule-violating content while preserving
+        the full audit trail.
+
+        When a post is deleted:
+        - The post `title` and `content` are replaced with `[deleted]`.
+        - The `author` field is anonymized to `[deleted]`.
+        - Existing comments on the post are **preserved** and the post
+          remains accessible via `GET /posts/{postId}` in its redacted
+          form.
+        - Awards, votes, and saves associated with the post are removed.
+        - This action is **irreversible**.
+
+      operationId: deletePost
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+      responses:
+        "200":
+          description: |
+            The post was successfully redacted. Returns the post in its
+            redacted state with `[deleted]` content and author.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Post"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            The authenticated user is not the author of this post.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: forbidden
+                  message: You can only delete your own posts.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /posts/{postId}/votes:
+    put:
+      tags: [Posts]
+      summary: Vote on a post
+      description: |
+        Casts, changes, or removes a vote on the specified post.
+
+        This endpoint acts as an **upsert** — `PUT` creates the vote if
+        none exists, updates it if the direction has changed, or removes
+        it when `direction: 0` is passed (functionally a delete).
+
+        Use `direction: 1` to upvote, `direction: -1` to downvote, or
+        `direction: 0` to remove a previously cast vote. Voting is idempotent
+        — casting the same vote twice has no additional effect.
+
+        The response returns the post's updated net `score` (upvotes minus
+        downvotes) after the vote is applied.
+
+        **Rate limit:** Votes are limited to **30 per minute** to prevent abuse.
+
+      operationId: votePost
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [direction]
+              properties:
+                direction:
+                  type: integer
+                  enum: [1, -1, 0]
+                  description: "`1` upvote, `-1` downvote, `0` unvote."
+      responses:
+        "200":
+          description: Vote recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  score:
+                    type: integer
+                    description: New net score of the post.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /posts/{postId}/saves:
+    put:
+      tags: [Posts]
+      summary: Save a post
+      description: |
+        Saves a post for the authenticated user.
+
+        Saved posts appear in the user's saved items list and can be retrieved
+        later. Saving a post does not affect its visibility to other users.
+        This operation is idempotent — saving an already-saved post is a no-op.
+
+      operationId: savePost
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+      responses:
+        "200":
+          description: Post saved.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Posts]
+      summary: Unsave a post
+      description: |
+        Removes a post from the authenticated user's saved items list.
+        This operation is idempotent.
+
+      operationId: unsavePost
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+      responses:
+        "204":
+          description: Post unsaved.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /media:
+    post:
+      tags: [Posts]
+      summary: Upload media for a post
+      description: |
+        Uploads an image or video file to be embedded in a post.
+
+        This endpoint accepts `multipart/form-data` with a single `file`
+        field. After successful upload, the server returns a `MediaAsset`
+        object containing the `assetId` that you can reference in a post's
+        `mediaAssets` array and inline in the `content` field using Markdown
+        syntax: `![caption](assetId)`.
+
+        **Supported formats:**
+        - **Images:** JPEG, PNG, GIF, WebP (max 20 MB)
+        - **Videos:** MP4, MOV, WebM (max 1 GB)
+
+        Uploaded assets are associated with the authenticated user and can
+        only be attached to posts created by that user. Assets not attached
+        to any post within **24 hours** are automatically deleted.
+
+      operationId: uploadMedia
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The image or video file to upload.
+      responses:
+        "201":
+          description: Media uploaded successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MediaAsset"
+        "400":
+          description: Invalid file type or file too large.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: invalid_file
+                  message: "Unsupported file type. Accepted: JPEG, PNG, GIF, WebP, MP4, MOV, WebM."
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "413":
+          description: File exceeds maximum size.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: file_too_large
+                  message: "File exceeds maximum allowed size (20 MB for images, 1 GB for videos)."
+
+  /media/{assetId}:
+    delete:
+      tags: [Posts]
+      summary: Delete an uploaded media asset
+      description: |
+        Permanently deletes an uploaded media asset.
+
+        Only the **original uploader** (the authenticated user who uploaded
+        the file) can delete an asset. If the asset is currently referenced
+        by a post or comment, deleting it will cause those inline references
+        to show a broken-image placeholder — clients should remove the
+        `![caption](assetId)` reference from the content before or after
+        deleting the asset.
+
+        This action is **irreversible**. The CDN copy is purged within a
+        few minutes of deletion.
+
+      operationId: deleteMedia
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: assetId
+          in: path
+          required: true
+          description: The unique identifier of the media asset to delete.
+          schema:
+            type: string
+            example: asset-abc123
+      responses:
+        "204":
+          description: Media asset deleted successfully.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The authenticated user is not the owner of this asset.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: forbidden
+                  message: You can only delete your own media assets.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /posts/{postId}/reports:
+    post:
+      tags: [Posts]
+      summary: Report a post
+      description: |
+        Flags a post for moderator review by submitting a report.
+
+        Reports are sent to the subreddit's mod queue where moderators can
+        approve or remove the flagged content. The post author is **not
+        notified** of the report.
+
+        Each user can only report a given post once. Duplicate reports from the
+        same user are silently ignored. You must select a `reason` from the
+        predefined list.
+
+        **Available reasons:**
+        - `Spam`
+        - `Harassment`
+        - `Hate speech`
+        - `Misinformation`
+        - `Breaks community rules`
+        - `Other`
+
+      operationId: reportPost
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum:
+                    - Spam
+                    - Harassment
+                    - Hate speech
+                    - Misinformation
+                    - Breaks community rules
+                    - Other
+      responses:
+        "200":
+          description: Report submitted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /awards:
+    get:
+      tags: [Posts]
+      summary: List available awards
+      description: |
+        Returns all award types available on the platform.
+
+        Each entry includes the award's `type`, display `name`, `icon`,
+        coin `cost`, and a short `description`. Clients should use this
+        endpoint to populate the award picker UI when a user wants to give
+        an award to a post.
+
+        This endpoint is **publicly accessible** — no authentication required.
+
+      operationId: listAvailableAwards
+      security: []
+      responses:
+        "200":
+          description: List of all available award types.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  awards:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AwardType"
+
+  /posts/{postId}/awards:
+    post:
+      tags: [Posts]
+      summary: Give an award
+      description: |
+        Awards a post with a badge of the specified type.
+
+        Awards are a way for users to recognize outstanding content. Each award
+        costs a certain number of **coins** (a virtual currency). The
+        authenticated user must have enough coins to afford the award.
+
+        **Available award types:**
+        | Type        | Cost   | Description             |
+        |-------------|--------|-------------------------|
+        | `gold`      | 500    | For outstanding content  |
+        | `silver`    | 100    | A modest award           |
+        | `helpful`   | 150    | For helpful contributions|
+        | `wholesome` | 125    | Pure and wholesome       |
+
+        The post author receives a notification when their post is awarded.
+        Awards are permanent and cannot be revoked.
+
+      operationId: awardPost
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type:
+                  type: string
+                  enum: [gold, silver, helpful, wholesome]
+      responses:
+        "200":
+          description: Award given.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  awards:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Award"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # ── Comments ────────────────────────────────
+  /posts/{postId}/comments:
+    get:
+      tags: [Comments]
+      security: []
+      summary: List comments on a post
+      description: |
+        Returns a **depth-limited** threaded list of comments for the specified
+        post.
+
+        Comments are returned as a tree structure: each top-level comment may
+        contain a `replies` array of nested child comments. Two parameters
+        control the shape of the returned tree:
+
+        - **`limit`** (k) — How many **top-level (root) comments** to return
+          per page (default 25, max 100). Use cursor-based pagination
+          (`after`) to fetch the next batch of root comments.
+        - **`childrenLimit`** (n) — How many **direct replies** to include
+          per parent comment at every nesting level (default 5, max 25).
+          When a parent has more replies than this limit, the excess is
+          replaced with a `more_children` stub.
+        - **`depth`** — How many levels of nesting to expand (default 5,
+          max 10). A depth of `0` returns only top-level comments with no
+          replies. Branches exceeding this depth are replaced with
+          `more_children` stubs.
+
+        ### Pagination model
+
+        This endpoint uses **two complementary pagination mechanisms**:
+
+        1. **Top-level cursor pagination** — The `limit` and `after`
+           parameters control how many **root-level** comments are returned
+           per page. Use `pagination.after` from the response to fetch the
+           next page of root comments.
+
+        2. **`more_children` stubs** — When replies are truncated (either
+           because a parent has more children than `childrenLimit`, or
+           because the tree exceeds `depth`), the server inserts a
+           lightweight stub:
+           ```json
+           {
+             "kind": "more",
+             "parentId": "comment-1",
+             "childIds": ["comment-5", "comment-6", "comment-7"],
+             "count": 3,
+             "depth": 2
+           }
+           ```
+           Clients should render these as **"Load more replies"** links and
+           fetch the missing subtree via
+           `GET /posts/{postId}/comments/more?children=comment-5,comment-6,comment-7`.
+
+        By default, comments are sorted by `best` (a combination of recency and
+        score). You can override this with the `sort` query parameter.
+
+        This endpoint is **publicly accessible**. No authentication is required,
+        but providing a bearer token will populate user-specific fields
+        (`saved`) on each comment.
+
+      operationId: listComments
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+        - name: sort
+          in: query
+          description: |
+            Determines the order of returned comments.
+            - `best` — Reddit-style ranking (Wilson score).
+            - `top` — Highest net score first.
+            - `new` — Most recent first.
+            - `controversial` — Most divisive (close upvote/downvote ratio).
+          schema:
+            type: string
+            enum: [best, top, new, controversial]
+            default: best
+        - name: depth
+          in: query
+          description: |
+            Maximum nesting depth of the comment tree to return. A depth of
+            `0` returns only top-level comments with no replies expanded.
+            Branches that exceed this depth are replaced with `more_children`
+            stubs. Clients can fetch truncated branches via the
+            `GET /posts/{postId}/comments/more` endpoint.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 10
+            default: 5
+        - name: childrenLimit
+          in: query
+          description: |
+            Maximum number of direct replies to return per parent comment at
+            each nesting level. When a parent has more replies than this
+            value, the remaining replies are replaced with a single
+            `more_children` stub. Clients can expand these via
+            `GET /posts/{postId}/comments/more`.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 25
+            default: 5
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/AfterParam"
+      responses:
+        "200":
+          description: |
+            A depth-limited comment tree. Truncated branches contain
+            `more_children` stubs with a `kind: "more"` discriminator.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    description: |
+                      Array of top-level comments. Each comment's `replies`
+                      array may contain either `Comment` objects or
+                      `MoreChildren` stubs (identified by `kind: "more"`).
+                    items:
+                      $ref: "#/components/schemas/Comment"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    post:
+      tags: [Comments]
+      summary: Create a comment
+      description: |
+        Creates a new comment on the specified post.
+
+        To post a **top-level comment**, omit the `parentId` field (or set it to
+        `null`). To post a **reply** to an existing comment, supply the parent
+        comment's ID in the `parentId` field. There is no limit on nesting depth.
+
+        The authenticated user becomes the `author` of the comment. The post's
+        `commentCount` is incremented atomically. If the post is **locked**,
+        this endpoint returns `403 Forbidden`.
+
+        A notification is sent to:
+        - The post author (for top-level comments).
+        - The parent comment's author (for replies).
+
+        Comments may include **inline media** (images/videos). Upload
+        media first via `POST /media`, pass the asset IDs in the
+        `mediaAssets` array, and reference them in `content` using Markdown
+        syntax: `![caption](assetId)`.
+
+      operationId: createComment
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+                  example: Great post! Thanks for sharing.
+                parentId:
+                  type: string
+                  nullable: true
+                  description: ID of the parent comment (for replies). Omit or set to `null` for top-level comments.
+                mediaAssets:
+                  type: array
+                  description: |
+                    Array of asset IDs (returned by `POST /media`) to
+                    attach to the comment. Reference these in `content` using
+                    `![caption](assetId)` Markdown syntax.
+                  items:
+                    type: string
+                  example: ["asset-bench1"]
+      responses:
+        "201":
+          description: Comment created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: The post is locked. New comments are not allowed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: forbidden
+                  message: This post is locked. New comments are not allowed.
+
+  /posts/{postId}/comments/more:
+    get:
+      tags: [Comments]
+      security: []
+      summary: Fetch additional nested comments
+      description: |
+        Retrieves the comment subtrees that were omitted from the main comment
+        listing and replaced with `more_children` stubs.
+
+        When `GET /posts/{postId}/comments` returns a `more_children` stub
+        (identified by `kind: "more"`), clients should call this endpoint
+        with the `children` IDs from that stub to load the missing comments.
+
+        The response is a **flat list** of comments (not nested). Each comment
+        includes its `parentId`, allowing the client to stitch them back into
+        the correct position in the local comment tree. Comments are returned
+        in depth-first order.
+
+        **Rate limit:** This endpoint counts toward the standard rate limit.
+
+        **Parameters**
+
+        | Parameter        | In    | Required | Description                                                            |
+        |------------------|-------|----------|------------------------------------------------------------------------|
+        | `postId`         | path  | Yes      | The post these comments belong to.                                     |
+        | `children`       | query | Yes      | Comma-separated list of comment IDs from a `more_children` stub.       |
+        | `sort`           | query | No       | Sort order for the returned comments (default `best`).                 |
+        | `depth`          | query | No       | Max depth to expand from each requested child (default 5, max 10).     |
+        | `childrenLimit`  | query | No       | Max replies per parent in the expanded subtree (default 5, max 25).    |
+
+        > **Tip:** If the returned comments themselves contain `more_children`
+        > stubs, call this endpoint again with those child IDs to continue
+        > expanding the tree incrementally.
+      operationId: fetchMoreComments
+      parameters:
+        - $ref: "#/components/parameters/PostIdParam"
+        - name: children
+          in: query
+          required: true
+          description: |
+            Comma-separated list of comment IDs to fetch (from a
+            `more_children` stub's `childIds` array). Maximum 100 IDs
+            per request.
+          schema:
+            type: string
+            example: "comment-5,comment-6,comment-7"
+        - name: sort
+          in: query
+          description: Sort order for the returned comments.
+          schema:
+            type: string
+            enum: [best, top, new, controversial]
+            default: best
+        - name: depth
+          in: query
+          description: |
+            Maximum nesting depth to expand from each requested child comment.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 10
+            default: 5
+        - name: childrenLimit
+          in: query
+          description: |
+            Maximum number of direct replies to include per parent comment
+            in the expanded subtree. Excess replies produce `more_children`
+            stubs.
+          schema:
+            type: integer
+            minimum: 0
+            maximum: 25
+            default: 5
+      responses:
+        "200":
+          description: |
+            A flat list of comments that were previously truncated. Clients
+            should use each comment's `parentId` to insert them into the
+            correct position in the local tree.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Comment"
+        "400":
+          description: |
+            Invalid request — e.g. `children` parameter is missing, empty,
+            or contains more than 100 IDs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: bad_request
+                  message: "The 'children' parameter is required and must contain 1-100 comma-separated comment IDs."
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /comments/{commentId}:
+    get:
+      tags: [Comments]
+      security: []
+      summary: Get a comment
+      description: |
+        Retrieves the full details of a single comment by its ID.
+
+        The response includes the comment's content, score, author, timestamps,
+        moderation flags, any attached media assets, and nested `replies`.
+
+        This is useful for deep-linking to a specific comment, or for fetching
+        updated data after a vote or edit. The endpoint is **publicly
+        accessible** — no authentication is required.
+
+      operationId: getComment
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          description: The unique identifier of the comment.
+          schema:
+            type: string
+            example: comment-1
+      responses:
+        "200":
+          description: Comment details.
+          headers:
+            ETag:
+              schema:
+                type: string
+              description: |
+                An opaque identifier for the current version of the comment.
+                Clients should provide this value in the `If-Match` header when
+                updating the comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    patch:
+      tags: [Comments]
+      summary: Update a comment
+      description: |
+        Updates the content of an existing comment.
+
+        Only the **original author** of the comment can update it. Attempting to
+        edit another user's comment returns a `403 Forbidden` error. Moderators
+        cannot edit other users' comments — they may only remove them via the
+        moderation endpoint.
+
+        When a comment is successfully updated:
+        - The `content` field is replaced with the new value.
+        - The `editedAt` timestamp is set to the current time.
+        - An "(edited)" indicator becomes visible to other users.
+        - A revision history entry is created internally for audit purposes.
+
+        **Restrictions:**
+        - The comment must not be removed by a moderator.
+        - The parent post must not be locked.
+        - `content` must be non-empty (at least 1 character).
+
+      operationId: updateComment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          description: The unique identifier of the comment to update.
+          schema:
+            type: string
+            example: comment-1
+        - name: If-Match
+          in: header
+          description: |
+            The ETag of the current version of the comment. Used to prevent
+            concurrent updates from overwriting each other.
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CommentUpdate"
+            example:
+              content: "Great explanation of Big O! I especially liked the visual diagrams. (Edited for clarity)\n\n![Diagram](asset-diagram1)"
+              mediaAssets: ["asset-diagram1"]
+      responses:
+        "200":
+          description: |
+            Returns the updated comment object. The `editedAt` field will
+            reflect the time of this update.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            The authenticated user is not the author of this comment, the
+            comment has been removed by a moderator, or the parent post is
+            locked.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: forbidden
+                  message: You can only edit your own comments.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    delete:
+      tags: [Comments]
+      summary: Delete a comment
+      description: |
+        Soft-deletes (redacts) a comment authored by the authenticated user.
+
+        This performs a **redaction**, not a true deletion — the comment
+        record is retained in the database so that threaded conversations
+        remain coherent. This is consistent with how Reddit handles
+        user-initiated comment deletions.
+
+        When a comment is deleted:
+        - The `content` field is replaced with `[deleted]`.
+        - The `author` field is anonymized to `[deleted]`.
+        - **Child replies are preserved** — the deleted comment remains in
+          the tree as a placeholder.
+        - Votes on the deleted comment are removed.
+        - This action is **irreversible**.
+
+        Only the **original author** can delete the comment via this endpoint.
+        Moderators should use the moderation endpoints to remove comments
+        instead.
+
+      operationId: deleteComment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          description: The unique identifier of the comment to delete.
+          schema:
+            type: string
+            example: comment-1
+      responses:
+        "200":
+          description: |
+            The comment was successfully redacted. Returns the comment in
+            its redacted state with `[deleted]` content and author.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Comment"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: |
+            The authenticated user is not the author of this comment.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: forbidden
+                  message: You can only delete your own comments.
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /comments/{commentId}/votes:
+    put:
+      tags: [Comments]
+      summary: Vote on a comment
+      description: |
+        Casts, changes, or removes a vote on a comment.
+
+        This endpoint acts as an **upsert** — `PUT` creates the vote if
+        none exists, updates it if the direction has changed, or removes
+        it when `direction: 0` is passed (functionally a delete).
+
+        Voting on comments follows the same rules as post voting: use
+        `direction: 1` for upvote, `-1` for downvote, and `0` to clear a
+        previous vote. The operation is idempotent.
+
+      operationId: voteComment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [direction]
+              properties:
+                direction:
+                  type: integer
+                  enum: [1, -1, 0]
+      responses:
+        "200":
+          description: Vote recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  score:
+                    type: integer
+                    description: New net score of the comment.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /comments/{commentId}/reports:
+    post:
+      tags: [Comments]
+      summary: Report a comment
+      description: |
+        Flags a comment for moderator review.
+
+        Reports are sent to the subreddit's mod queue. The comment author is
+        **not notified** of the report. Each user can only report a given
+        comment once; duplicate reports are silently ignored.
+
+      operationId: reportComment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  enum:
+                    - Spam
+                    - Harassment
+                    - Hate speech
+                    - Misinformation
+                    - Breaks community rules
+                    - Other
+      responses:
+        "200":
+          description: Report submitted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /comments/{commentId}/saves:
+    put:
+      tags: [Comments]
+      summary: Save a comment
+      description: |
+        Saves a comment for the authenticated user.
+
+        Saved comments appear in the user's saved items list and can be retrieved
+        later. Saving a comment does not affect its visibility to other users.
+        This operation is idempotent — saving an already-saved comment is a no-op.
+
+      operationId: saveComment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Comment saved.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [Comments]
+      summary: Unsave a comment
+      description: |
+        Removes a comment from the authenticated user's saved items list.
+        This operation is idempotent.
+
+      operationId: unsaveComment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: commentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Comment unsaved.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Subreddits ──────────────────────────────
+  /subreddits:
+    get:
+      tags: [Subreddits]
+      security: []
+      summary: List communities
+      description: |
+        Returns a paginated list of all public subreddits, ordered by member
+        count in descending order.
+
+        This endpoint is useful for discovery features like "Explore
+        Communities" or autocomplete in a subreddit search bar. Use `limit`
+        and `after` for pagination.
+
+      operationId: listSubreddits
+      parameters:
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/AfterParam"
+      responses:
+        "200":
+          description: A list of subreddits.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Subreddit"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+    post:
+      tags: [Subreddits]
+      summary: Create a community
+      description: |
+        Creates a new subreddit (community).
+
+        The authenticated user becomes the **first moderator** of the new
+        community. Subreddit names must be between 3 and 21 characters, contain
+        only alphanumeric characters and underscores, and must be unique across
+        the entire platform.
+
+        **Community types:**
+        | Type         | Description                                 |
+        |--------------|---------------------------------------------|
+        | `public`     | Anyone can view and post.                   |
+        | `restricted` | Anyone can view, but only approved users post.|
+        | `private`    | Only approved members can view and post.     |
+
+      operationId: createSubreddit
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, description, communityType]
+              properties:
+                name:
+                  type: string
+                  minLength: 3
+                  maxLength: 21
+                  pattern: "^[a-zA-Z0-9_]+$"
+                  example: learnpython
+                description:
+                  type: string
+                  maxLength: 500
+                communityType:
+                  type: string
+                  enum: [public, restricted, private]
+                  default: public
+                isNSFW:
+                  type: boolean
+                  default: false
+      responses:
+        "201":
+          description: Community created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subreddit"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          description: Community name already taken.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /r/{subreddit}:
+    get:
+      tags: [Subreddits]
+      security: []
+      summary: Get community details
+      description: |
+        Returns the full metadata for a subreddit, including its description,
+        rules, member count, active users, moderator list, available post
+        flairs, and creation date.
+
+        This is the primary endpoint for rendering a subreddit's "About" page
+        or sidebar. It is **publicly accessible** for public and restricted
+        communities. Private communities return `404` to non-members.
+
+      operationId: getSubreddit
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: Subreddit details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subreddit"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /r/{subreddit}/membership:
+    put:
+      tags: [Subreddits]
+      summary: Join a community
+      description: |
+        Adds the authenticated user as a member of the specified subreddit.
+
+        After joining, the subreddit's posts will appear in the user's home feed.
+        The community's `members` count is incremented. This operation is
+        **idempotent** — sending this request when already a member has no
+        effect.
+
+        For **private** communities, this endpoint submits a join request that
+        must be approved by a moderator.
+
+      operationId: joinSubreddit
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: Joined successfully (or was already a member).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Membership"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    delete:
+      tags: [Subreddits]
+      summary: Leave a community
+      description: |
+        Removes the authenticated user from the specified subreddit's membership.
+
+        The subreddit's posts will no longer appear in the user's home feed,
+        and the `members` count is decremented. This operation is idempotent.
+
+        **Note:** Moderators who leave a community also forfeit their moderator
+        status. If the last moderator leaves, the community becomes unmoderated.
+
+      operationId: leaveSubreddit
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: Left successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Left r/programming."
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  # /r/{subreddit}/moderator-applications:
+  #   post:
+  #     tags: [Subreddits]
+  #     summary: Apply to become a moderator
+  #     description: |
+  #       Submits a moderator application for the specified subreddit.
+
+  #       The application is sent to existing moderators for review via mod mail.
+  #       Only one pending application per user per subreddit is allowed.
+
+  #     operationId: applyModerator
+  #     security:
+  #       - bearerAuth: []
+  #     parameters:
+  #       - $ref: "#/components/parameters/SubredditParam"
+  #     responses:
+  #       "200":
+  #         description: Application submitted.
+  #       "401":
+  #         $ref: "#/components/responses/Unauthorized"
+
+  # ── Search ──────────────────────────────────
+  /search:
+    get:
+      tags: [Search]
+      security: []
+      summary: Search across the platform
+      description: |
+        Full-text search across all subreddits. Returns posts, comments,
+        communities, or users depending on the `type` parameter.
+
+        The query string supports **boolean operators**:
+        - `AND`, `OR`, `NOT`
+        - Quoted phrases for exact matches (e.g. `"exact phrase"`)
+
+        Use the optional `subreddit` and `author` parameters to narrow
+        results without scoping to a single community's endpoint.
+
+      operationId: searchGlobal
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: |
+            The search string. Supports standard boolean operators
+            (`AND`, `OR`, `NOT`) and quoted phrases for exact matches.
+          schema:
+            type: string
+            example: "api design REST"
+        - name: type
+          in: query
+          description: Restrict results to a specific content type.
+          schema:
+            type: string
+            enum: [posts, comments, communities, users]
+            default: posts
+        - name: subreddit
+          in: query
+          description: |
+            Restrict results to a specific subreddit name (without the
+            `/r/` prefix). Equivalent to using the subreddit-scoped
+            search endpoint.
+          schema:
+            type: string
+            example: programming
+        - name: author
+          in: query
+          description: Restrict results to content submitted by a specific user.
+          schema:
+            type: string
+            example: johndoe
+        - name: sort
+          in: query
+          description: Determines the order of search results.
+          schema:
+            type: string
+            enum: [relevance, hot, top, new, comments]
+            default: relevance
+        - name: t
+          in: query
+          description: |
+            Time window filter. Only applicable when `sort` is `top` or
+            `comments`.
+          schema:
+            type: string
+            enum: [hour, day, week, month, year, all]
+            default: all
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/AfterParam"
+      responses:
+        "200":
+          description: Search results.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    description: |
+                      Array of matching items. The shape of each object
+                      depends on the `type` parameter (Post, Comment,
+                      Subreddit, or User).
+                    items:
+                      oneOf:
+                        - $ref: "#/components/schemas/Post"
+                        - $ref: "#/components/schemas/Comment"
+                        - $ref: "#/components/schemas/Subreddit"
+                        - $ref: "#/components/schemas/User"
+                      discriminator:
+                        propertyName: kind
+                        mapping:
+                          post: "#/components/schemas/Post"
+                          comment: "#/components/schemas/Comment"
+                          subreddit: "#/components/schemas/Subreddit"
+                          user: "#/components/schemas/User"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /r/{subreddit}/search:
+    get:
+      tags: [Search]
+      security: []
+      summary: Search within a subreddit
+      description: |
+        Searches posts and comments within a specific subreddit.
+
+        This is the subreddit-scoped equivalent of `GET /search`. The query
+        is restricted to content belonging to the specified community. Use
+        this for the search bar within a subreddit page.
+
+        The query string supports the same **boolean operators** as the
+        global search (`AND`, `OR`, `NOT`, quoted exact phrases).
+
+      operationId: searchSubreddit
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: q
+          in: query
+          required: true
+          description: |
+            The search string. Supports boolean operators (`AND`, `OR`,
+            `NOT`) and quoted phrases for exact matches.
+          schema:
+            type: string
+            example: "big o notation"
+        - name: type
+          in: query
+          description: |
+            Restrict results to posts or comments within this subreddit.
+          schema:
+            type: string
+            enum: [posts, comments]
+            default: posts
+        - name: author
+          in: query
+          description: Restrict results to content submitted by a specific user.
+          schema:
+            type: string
+        - name: sort
+          in: query
+          description: Determines the order of search results.
+          schema:
+            type: string
+            enum: [relevance, hot, top, new, comments]
+            default: relevance
+        - name: t
+          in: query
+          description: |
+            Time window filter. Only applicable when `sort` is `top` or
+            `comments`.
+          schema:
+            type: string
+            enum: [hour, day, week, month, year, all]
+            default: all
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/AfterParam"
+      responses:
+        "200":
+          description: Search results within the subreddit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      oneOf:
+                        - $ref: "#/components/schemas/Post"
+                        - $ref: "#/components/schemas/Comment"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Users ───────────────────────────────────
+#   /users/{username}:
+#     get:
+#       tags: [Users]
+#       security: []
+#       summary: Get user profile
+#       description: Returns public profile information including karma and account age.
+#       operationId: getUser
+#       parameters:
+#         - $ref: "#/components/parameters/UsernameParam"
+#       responses:
+#         "200":
+#           description: User profile.
+#           content:
+#             application/json:
+#               schema:
+#                 $ref: "#/components/schemas/User"
+#         "404":
+#           $ref: "#/components/responses/NotFound"
+#     patch:
+#       tags: [Users]
+#       summary: Update user profile
+#       description: |
+#         Updates the profile information of the specified user.
+#         Authentication is required and the logged-in user can only update their own profile.
+#       operationId: updateUser
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - $ref: "#/components/parameters/UsernameParam"
+#       requestBody:
+#         required: true
+#         content:
+#           application/json:
+#             schema:
+#               type: object
+#               properties:
+#                 avatar:
+#                   type: string
+#                   format: uri
+#                 bio:
+#                   type: string
+#                 displayName:
+#                   type: string
+#       responses:
+#         "200":
+#           description: User profile updated successfully.
+#           content:
+#             application/json:
+#               schema:
+#                 $ref: "#/components/schemas/User"
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+#         "403":
+#           $ref: "#/components/responses/Forbidden"
+#     delete:
+#       tags: [Users]
+#       summary: Delete user account
+#       description: |
+#         Permanently deletes the specified user account.
+#         Authentication is required and the logged-in user can only delete their own account.
+#       operationId: deleteUser
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - $ref: "#/components/parameters/UsernameParam"
+#       responses:
+#         "204":
+#           description: User deleted.
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+#         "403":
+#           $ref: "#/components/responses/Forbidden"
+#
+#   /users/{username}/posts:
+#     get:
+#       tags: [Users]
+#       security: []
+#       summary: List user's posts
+#       description: |
+#         Returns a paginated list of all posts created by the specified user,
+#         sorted by creation date (newest first).
+#
+#         This endpoint powers the "Posts" tab on a user's profile page. It is
+#         publicly accessible. Removed posts are excluded unless the request is
+#         made by the post author or a moderator.
+#
+#
+#       operationId: listUserPosts
+#       parameters:
+#         - $ref: "#/components/parameters/UsernameParam"
+#         - $ref: "#/components/parameters/LimitParam"
+#         - $ref: "#/components/parameters/AfterParam"
+#       responses:
+#         "200":
+#           description: User's posts.
+#           content:
+#             application/json:
+#               schema:
+#                 type: object
+#                 properties:
+#                   data:
+#                     type: array
+#                     items:
+#                       $ref: "#/components/schemas/Post"
+#                   pagination:
+#                     $ref: "#/components/schemas/Pagination"
+#
+#   /users/{username}/comments:
+#     get:
+#       tags: [Users]
+#       security: []
+#       summary: List user's comments
+#       description: |
+#         Returns a paginated list of all comments made by the specified user,
+#         sorted by creation date (newest first).
+#
+#         This endpoint powers the "Comments" tab on a user's profile page.
+#         It is publicly accessible. Removed comments are excluded unless the
+#         request is made by the comment author or a moderator.
+#
+#
+#       operationId: listUserComments
+#       parameters:
+#         - $ref: "#/components/parameters/UsernameParam"
+#         - $ref: "#/components/parameters/LimitParam"
+#         - $ref: "#/components/parameters/AfterParam"
+#       responses:
+#         "200":
+#           description: User's comments.
+#           content:
+#             application/json:
+#               schema:
+#                 type: object
+#                 properties:
+#                   data:
+#                     type: array
+#                     items:
+#                       $ref: "#/components/schemas/Comment"
+#                   pagination:
+#                     $ref: "#/components/schemas/Pagination"
+#
+#   /users/{username}/saved-posts:
+#     get:
+#       tags: [Users]
+#       summary: List user's saved posts
+#       description: |
+#         Returns a paginated list of posts the specified user has saved.
+#
+#         This endpoint is only accessible by the **authenticated user themselves**
+#         — you cannot view another user's saved posts. If the `username` does not
+#         match the authenticated user, a `403 Forbidden` is returned.
+#
+#
+#       operationId: listUserSavedPosts
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - $ref: "#/components/parameters/UsernameParam"
+#         - $ref: "#/components/parameters/LimitParam"
+#         - $ref: "#/components/parameters/AfterParam"
+#       responses:
+#         "200":
+#           description: User's saved posts.
+#           content:
+#             application/json:
+#               schema:
+#                 type: object
+#                 properties:
+#                   data:
+#                     type: array
+#                     items:
+#                       $ref: "#/components/schemas/Post"
+#                   pagination:
+#                     $ref: "#/components/schemas/Pagination"
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+#         "403":
+#           $ref: "#/components/responses/Forbidden"
+#
+#   /users/{username}/saved-comments:
+#     get:
+#       tags: [Users]
+#       summary: List user's saved comments
+#       description: |
+#         Returns a paginated list of comments the specified user has saved.
+#
+#         This endpoint is only accessible by the **authenticated user themselves**
+#         — you cannot view another user's saved comments. If the `username` does not
+#         match the authenticated user, a `403 Forbidden` is returned.
+#
+#       operationId: listUserSavedComments
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - $ref: "#/components/parameters/UsernameParam"
+#         - $ref: "#/components/parameters/LimitParam"
+#         - $ref: "#/components/parameters/AfterParam"
+#       responses:
+#         "200":
+#           description: User's saved comments.
+#           content:
+#             application/json:
+#               schema:
+#                 type: object
+#                 properties:
+#                   data:
+#                     type: array
+#                     items:
+#                       $ref: "#/components/schemas/Comment"
+#                   pagination:
+#                     $ref: "#/components/schemas/Pagination"
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+#         "403":
+#           $ref: "#/components/responses/Forbidden"
+#
+#   /users/{username}/subscriptions:
+#     get:
+#       tags: [Users]
+#       summary: List subscribed communities
+#       description: |
+#         Returns a paginated list of subreddits the specified user is a member of.
+#
+#         This powers the "My Communities" sidebar or profile section. The list
+#         is sorted alphabetically by subreddit name.
+#
+#
+#       operationId: listUserSubscriptions
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - $ref: "#/components/parameters/UsernameParam"
+#         - $ref: "#/components/parameters/LimitParam"
+#         - $ref: "#/components/parameters/AfterParam"
+#       responses:
+#         "200":
+#           description: Subscribed communities.
+#           content:
+#             application/json:
+#               schema:
+#                 type: object
+#                 properties:
+#                   data:
+#                     type: array
+#                     items:
+#                       $ref: "#/components/schemas/Subreddit"
+#                   pagination:
+#                     $ref: "#/components/schemas/Pagination"
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+#
+#   # ── Messages ────────────────────────────────
+#   /messages:
+#     get:
+#       tags: [Messages]
+#       summary: List messages
+#       description: Retrieve direct messages. Filter by `inbox`, `sent`, or `all`.
+#       operationId: listMessages
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - name: tab
+#           in: query
+#           schema:
+#             type: string
+#             enum: [inbox, sent, all]
+#             default: inbox
+#         - $ref: "#/components/parameters/LimitParam"
+#       responses:
+#         "200":
+#           description: Messages.
+#           content:
+#             application/json:
+#               schema:
+#                 type: object
+#                 properties:
+#                   data:
+#                     type: array
+#                     items:
+#                       $ref: "#/components/schemas/UserMessage"
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+#     post:
+#       tags: [Messages]
+#       summary: Send a message
+#       description: |
+#         Sends a direct message to another user.
+# 
+#         The recipient is specified by username in the `to` field. The sender
+#         is automatically set to the authenticated user. Messages support plain
+#         text content.
+# 
+#         A notification is sent to the recipient. If the recipient has blocked
+#         the sender, the API returns `403 Forbidden`.
+# 
+# 
+#       operationId: sendMessage
+#       security:
+#         - bearerAuth: []
+#       requestBody:
+#         required: true
+#         content:
+#           application/json:
+#             schema:
+#               type: object
+#               required: [to, subject, content]
+#               properties:
+#                 to:
+#                   type: string
+#                   example: janedoe
+#                 subject:
+#                   type: string
+#                   example: Quick question
+#                 content:
+#                   type: string
+#       responses:
+#         "201":
+#           description: Message sent.
+#           content:
+#             application/json:
+#               schema:
+#                 $ref: "#/components/schemas/UserMessage"
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+# 
+#   /messages/{messageId}:
+#     delete:
+#       tags: [Messages]
+#       summary: Delete a message
+#       description: |
+#         Permanently deletes a direct message from the authenticated user's
+#         mailbox.
+# 
+#         This only removes the message from **your** view — the other
+#         participant's copy is unaffected. This action is irreversible.
+# 
+# 
+#       operationId: deleteMessage
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - name: messageId
+#           in: path
+#           required: true
+#           schema:
+#             type: string
+#       responses:
+#         "204":
+#           description: Deleted.
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+#     patch:
+#       tags: [Messages]
+#       summary: Update message status
+#       description: |
+#         Updates the attributes of a specific message for the authenticated user.
+# 
+#         Use this to update the `read` field to `true`. The operation is idempotent.
+# 
+# 
+#       operationId: updateMessage
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - name: messageId
+#           in: path
+#           required: true
+#           schema:
+#             type: string
+#       requestBody:
+#         required: true
+#         content:
+#           application/json:
+#             schema:
+#               type: object
+#               properties:
+#                 read:
+#                   type: boolean
+#       responses:
+#         "200":
+#           description: Message updated.
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+# 
+#   /messages/{messageId}/replies:
+#     post:
+#       tags: [Messages]
+#       summary: Reply to a message
+#       description: |
+#         Sends a reply to an existing message thread.
+# 
+#         The reply is linked to the original message via `parentId`. Both
+#         participants can see the full thread. A notification is sent to the
+#         other participant.
+# 
+# 
+#       operationId: replyToMessage
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - name: messageId
+#           in: path
+#           required: true
+#           schema:
+#             type: string
+#       requestBody:
+#         required: true
+#         content:
+#           application/json:
+#             schema:
+#               type: object
+#               required: [content]
+#               properties:
+#                 content:
+#                   type: string
+#       responses:
+#         "201":
+#           description: Reply sent.
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+# 
+#   # ── Notifications ───────────────────────────
+#   /notifications:
+#     get:
+#       tags: [Notifications]
+#       summary: List notifications
+#       description: |
+#         Returns a paginated list of notifications for the authenticated user,
+#         ordered by most recent first.
+# 
+#         Notifications are generated by platform events such as replies to your
+#         posts or comments, username mentions, awards received, moderator
+#         actions on your content, and upvote milestones.
+# 
+#         Each notification object includes a `read` boolean indicating whether
+#         the user has seen it. Unread notifications are returned first within
+#         the time-ordered list.
+# 
+#         **Parameters**
+# 
+#         | Parameter | Required | Description                                    |
+#         |-----------|----------|------------------------------------------------|
+#         | `limit`   | No       | Number of items to return (1–100, default 25). |
+#         | `after`   | No       | Cursor from a previous `pagination.after`.     |
+# 
+# 
+# 
+#         **Returns**
+# 
+#         A JSON object with a `data` array of [Notification](#/components/schemas/Notification)
+#         objects and a `pagination` object. Returns an empty `data` array if
+#         the user has no notifications.
+#       operationId: listNotifications
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - $ref: "#/components/parameters/LimitParam"
+#         - $ref: "#/components/parameters/AfterParam"
+#       responses:
+#         "200":
+#           description: A paginated list of notifications.
+#           content:
+#             application/json:
+#               schema:
+#                 type: object
+#                 properties:
+#                   data:
+#                     type: array
+#                     items:
+#                       $ref: "#/components/schemas/Notification"
+#                   pagination:
+#                     $ref: "#/components/schemas/Pagination"
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+#     patch:
+#       tags: [Notifications]
+#       summary: Mark all notifications as read
+#       description: |
+#         Marks **all** of the authenticated user's unread notifications as read
+#         in a single bulk operation.
+# 
+#         This is a convenience endpoint typically triggered by a "Mark all as
+#         read" button in the notifications UI. It applies a partial update
+#         (`read: true`) to every unread notification belonging to the
+#         authenticated user.
+# 
+#         The operation is **idempotent** — calling it when all notifications
+#         are already read returns successfully with `count: 0`.
+# 
+#         **Body parameters**
+# 
+#         | Field  | Type    | Required | Description                                  |
+#         |--------|---------|----------|----------------------------------------------|
+#         | `read` | boolean | Yes      | Must be `true`. Marks all notifications read.|
+# 
+# 
+# 
+#         **Returns**
+# 
+#         A JSON object with a confirmation `message` and the `count` of
+#         notifications that were updated (i.e., transitioned from unread to
+#         read). If all notifications were already read, `count` is `0`.
+#       operationId: markAllNotificationsRead
+#       security:
+#         - bearerAuth: []
+#       requestBody:
+#         required: true
+#         content:
+#           application/json:
+#             schema:
+#               type: object
+#               required: [read]
+#               properties:
+#                 read:
+#                   type: boolean
+#                   description: Must be `true` to mark all notifications as read.
+#       responses:
+#         "200":
+#           description: All notifications marked as read.
+#           content:
+#             application/json:
+#               schema:
+#                 type: object
+#                 properties:
+#                   message:
+#                     type: string
+#                     example: "All notifications marked as read."
+#                   count:
+#                     type: integer
+#                     description: Number of notifications that were updated.
+#                     example: 12
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+# 
+#   /notifications/{notificationId}:
+#     patch:
+#       tags: [Notifications]
+#       summary: Update a notification
+#       description: |
+#         Updates the specified notification by setting the values of the
+#         parameters passed. Any parameters not provided will be left unchanged.
+# 
+#         Currently the only mutable attribute is `read`. Use this endpoint to
+#         mark a notification as read when the user views or interacts with it.
+#         Since `read` is an attribute of the notification resource itself, this
+#         uses `PATCH` (partial update) rather than a separate sub-resource.
+# 
+#         The operation is **idempotent** — marking an already-read notification
+#         as read has no additional effect.
+# 
+#         **Parameters**
+# 
+#         | Parameter        | In   | Required | Description                          |
+#         |------------------|------|----------|--------------------------------------|
+#         | `notificationId` | path | Yes      | The ID of the notification to update.|
+# 
+#         **Body parameters**
+# 
+#         | Field  | Type    | Required | Description                          |
+#         |--------|---------|----------|--------------------------------------|
+#         | `read` | boolean | Yes      | Set to `true` to mark as read.       |
+# 
+# 
+# 
+#         **Returns**
+# 
+#         The updated [Notification](#/components/schemas/Notification) object
+#         with the `read` field set to the new value.
+#       operationId: updateNotification
+#       security:
+#         - bearerAuth: []
+#       parameters:
+#         - name: notificationId
+#           in: path
+#           required: true
+#           description: Unique identifier of the notification.
+#           schema:
+#             type: string
+#             example: notif-a1b2c3
+#       requestBody:
+#         required: true
+#         content:
+#           application/json:
+#             schema:
+#               type: object
+#               required: [read]
+#               properties:
+#                 read:
+#                   type: boolean
+#                   description: Whether the notification has been read.
+#       responses:
+#         "200":
+#           description: The updated notification.
+#           content:
+#             application/json:
+#               schema:
+#                 $ref: "#/components/schemas/Notification"
+#         "401":
+#           $ref: "#/components/responses/Unauthorized"
+#         "404":
+#           $ref: "#/components/responses/NotFound"
+# 
+  # ── Moderation Actions ──────────────────────
+  /r/{subreddit}/posts/{postId}/moderation:
+    patch:
+      tags: [Moderation]
+      operationId: updateModerationStatus
+      summary: Update moderation status
+      description: |
+        Updates the moderation state of a post, such as locking, pinning,
+        or removing it. **Requires moderator privileges** in the specified
+        subreddit.
+
+        This endpoint controls moderation-specific flags only. To edit a
+        post's title or content, authors should use `PATCH /posts/{postId}`
+        instead.
+
+        Each field is independent — you can lock and pin a post in a single
+        request, or update only one field. Omitted fields are left unchanged.
+        Setting `pinned: true` on a removed post has no visible effect until
+        the post's `status` is set back to `visible`.
+
+        All changes made through this endpoint are recorded in the
+        [mod log](#/paths/~1r~1{subreddit}~1modlog/get).
+
+        **Body parameters**
+
+        | Field    | Type    | Required | Description                                       |
+        |----------|---------|----------|---------------------------------------------------|
+        | `status` | string  | No       | `visible` or `removed`. Controls post visibility. |
+        | `locked` | boolean | No       | `true` to prevent new comments.                   |
+        | `pinned` | boolean | No       | `true` to stick post to the top of the subreddit. |
+
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - $ref: "#/components/parameters/PostIdParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                # Status is mutually exclusive
+                status:
+                  type: string
+                  enum: [visible, removed]
+                  description: "Sets the post visibility."
+                
+                # These are independent toggles
+                locked:
+                  type: boolean
+                  description: "Prevents new comments."
+                pinned:
+                  type: boolean
+                  description: "Sticks to top of list. Only works if status is 'visible'."
+      responses:
+        "200":
+          description: Moderation state updated.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Must be a moderator.
+        "404":
+          $ref: "#/components/responses/NotFound"
+# ── Mod Queue ─────────────────────────────────
+  /r/{subreddit}/modqueue:
+    get:
+      tags: [Mod Queue]
+      summary: List flagged items
+      description: |
+        Returns a paginated list of posts, comments, and users that have been
+        reported or flagged for moderator review. **Requires moderator
+        privileges.**
+
+        Items are sorted by the number of reports (descending) and then by
+        recency. Use the `filter` parameter to narrow results to a specific
+        content type. Once an item is approved or removed via
+        `PATCH /r/{subreddit}/modqueue/{contentId}`, it leaves the queue.
+
+        **Parameters**
+
+        | Parameter   | In    | Required | Description                                              |
+        |-------------|-------|----------|----------------------------------------------------------|
+        | `subreddit` | path  | Yes      | Subreddit name (without the `r/` prefix).                |
+        | `filter`    | query | No       | Content type: `all`, `posts`, `comments`, `users` (default: `all`). |
+        | `limit`     | query | No       | Number of items to return (1–100, default 25).           |
+        | `after`     | query | No       | Cursor from a previous `pagination.after` value.         |
+
+        **Returns**
+
+        A JSON object with a `data` array of
+        [ModQueueItem](#/components/schemas/ModQueueItem) objects and a
+        `pagination` object for cursor-based navigation.
+      operationId: getModQueue
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: filter
+          in: query
+          schema:
+            type: string
+            enum: [all, posts, comments, users]
+            default: all
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/AfterParam"
+      responses:
+        "200":
+          description: Flagged items.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModQueueItem"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    patch:
+      tags: [Mod Queue]
+      summary: Bulk update status of items
+      description: |
+        Applies a moderation action to multiple queue items in a single
+        request. **Requires moderator privileges.**
+
+        This is a convenience endpoint for moderators handling a backlog of
+        reports. It accepts an array of content IDs and a status to apply
+        to all of them. Each item is processed independently — if some IDs
+        are invalid, the valid ones are still processed.
+
+        A mod log entry is created for each item acted upon.
+
+        **Body parameters**
+
+        | Field    | Type     | Required | Description                                               |
+        |----------|----------|----------|-----------------------------------------------------------|
+        | `ids`    | string[] | Yes      | Array of content IDs (post or comment IDs) to act upon.   |
+        | `status` | string   | Yes      | `approved` to clear flags, or `removed` to hide content.  |
+
+        **Returns**
+
+        A JSON object with `processed` (number of items successfully acted
+        upon), `failed` (number of items that could not be found or
+        processed), and a summary `message`.
+      operationId: bulkModQueueAction
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids, status]
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                  example: ["post-1", "comment-5"]
+                status:
+                  type: string
+                  enum: [approved, removed]
+      responses:
+        "200":
+          description: Bulk action processed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  processed:
+                    type: integer
+                  failed:
+                    type: integer
+                  message:
+                    type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/modqueue/{contentId}:
+    patch:
+      tags: [Mod Queue]
+      summary: Update item status
+      description: |
+        Updates the moderation status of a single item in the mod queue.
+        **Requires moderator privileges.**
+
+        Use this endpoint to approve or remove reported content. Once acted
+        upon, the item leaves the queue. An entry is automatically recorded
+        in the [mod log](#/paths/~1r~1{subreddit}~1modlog/get).
+
+        - **`approved`** — clears all reports and restores the content to
+          normal visibility.
+        - **`removed`** — hides the content from public view. An optional
+          `reason` can be provided, which is stored in the mod log for
+          audit purposes.
+
+        **Body parameters**
+
+        | Field    | Type   | Required | Description                                                      |
+        |----------|--------|----------|------------------------------------------------------------------|
+        | `status` | string | Yes      | `approved` to clear flags, or `removed` to hide the content.    |
+        | `reason` | string | No       | Reason for removal. Only meaningful when `status` is `removed`. |
+
+      operationId: updateModQueueItem
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: contentId
+          in: path
+          required: true
+          description: |
+            The globally unique ID of the Post or Comment in the queue.
+            Post IDs and Comment IDs must never collide — the platform
+            uses prefixed IDs (e.g., `post-` and `comment-`) to guarantee
+            global uniqueness across resource types.
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [approved, removed]
+                  description: "Set to 'approved' to clear flags, or 'removed' to hide content."
+                reason:
+                  type: string
+                  description: Optional reason for removal. Only meaningful when status is 'removed'. Stored in the mod log.
+      responses:
+        "200":
+          description: Status updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Item approved."
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Mod Log ─────────────────────────────────
+  /r/{subreddit}/modlog:
+    get:
+      tags: [Mod Log]
+      summary: List moderator actions
+      description: |
+        Returns the audit trail of all moderator actions in this subreddit.
+
+        The mod log provides a transparent record of moderation activity.
+        Each entry includes the moderator who performed the action, the action
+        type, the target user or content, and an optional reason. Results are
+        sorted by most recent first. **Requires moderator privileges.**
+
+        Use the `action` parameter to filter by action type, and `moderator`
+        to filter by the acting moderator.
+
+        **Supported action types:**
+        `remove_post`, `remove_comment`, `approve_post`, `approve_comment`,
+        `ban_user`, `unban_user`, `mute_user`, `lock_post`, `pin_post`,
+        `edit_flair`, `update_rules`
+
+      operationId: getModLog
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: action
+          in: query
+          description: Filter by action type.
+          schema:
+            type: string
+            enum:
+              - remove_post
+              - remove_comment
+              - approve_post
+              - approve_comment
+              - ban_user
+              - unban_user
+              - warn_user
+              - mute_user
+              - lock_post
+              - pin_post
+              - edit_flair
+              - update_rules
+        - name: moderator
+          in: query
+          description: Filter by moderator username.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/AfterParam"
+      responses:
+        "200":
+          description: Mod log entries.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModLogEntry"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Banned Users ────────────────────────────
+  /r/{subreddit}/bans:
+    get:
+      tags: [Banned Users]
+      summary: List banned users
+      description: |
+        Returns the list of all users currently banned from the subreddit.
+
+        Each entry includes the banned user's username, the reason for the ban,
+        who issued it, when it was issued, and whether it is permanent or
+        temporary (with an expiration date). **Requires moderator privileges.**
+
+      operationId: listBannedUsers
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: Banned users.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/BannedUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /r/{subreddit}/bans/{username}:
+    put:
+      tags: [Banned Users]
+      summary: Ban a user
+      description: |
+        Bans a user from the subreddit, preventing them from posting,
+        commenting, or voting in the community.
+
+        You can issue a permanent ban or a temporary ban with a duration in
+        days. A mod log entry is created automatically. **Requires moderator
+        privileges.**
+
+        The `reason` field is recorded in the mod log and is visible to other
+        moderators. The banned user receives a notification about the ban.
+
+      operationId: banUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - $ref: "#/components/parameters/UsernameParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason, permanent]
+              properties:
+                reason:
+                  type: string
+                permanent:
+                  type: boolean
+                  default: false
+                duration:
+                  type: integer
+                  description: Ban duration in days. Ignored if `permanent` is true.
+                  example: 7
+      responses:
+        "200":
+          description: User banned.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BannedUser"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+    delete:
+      tags: [Banned Users]
+      summary: Unban a user
+      description: |
+        Removes a user's ban from the subreddit, restoring their ability to
+        post, comment, and vote in the community.
+
+        A mod log entry is created for the unban action. The user is **not**
+        explicitly notified of the unban. **Requires moderator privileges.**
+
+      operationId: unbanUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - $ref: "#/components/parameters/UsernameParam"
+      responses:
+        "204":
+          description: Unbanned.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ── Warnings ─────────────────────────────────
+  /r/{subreddit}/warnings:
+    get:
+      tags: [Moderation]
+      summary: List all warnings
+      description: |
+        Returns a paginated list of all warnings issued in the subreddit,
+        ordered by most recent first. **Requires moderator privileges.**
+
+        Use the optional `username` query parameter to filter warnings issued
+        to a specific user.
+
+      operationId: listWarnings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: username
+          in: query
+          description: Filter warnings issued to a specific user.
+          schema:
+            type: string
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/AfterParam"
+      responses:
+        "200":
+          description: List of warnings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Warning"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /r/{subreddit}/warnings/{username}:
+    post:
+      tags: [Moderation]
+      summary: Warn a user
+      description: |
+        Issues an official warning to a user in the specified subreddit.
+
+        Warnings are a moderation tool for addressing minor or first-time
+        rule violations without resorting to a ban. The warned user receives
+        a notification containing the warning reason and a link to the
+        offending content (if provided). A mod log entry is created
+        automatically.
+
+        Warnings accumulate on the user's record within the subreddit.
+        Moderators can view a user's warning history via
+        `GET /r/{subreddit}/warnings/{username}`. After repeated warnings,
+        moderators may escalate to a temporary or permanent ban.
+
+        **Requires moderator privileges.**
+
+        **Parameters**
+
+        | Parameter   | In   | Required | Description                              |
+        |-------------|------|----------|------------------------------------------|
+        | `subreddit` | path | Yes      | Subreddit name (without the `r/` prefix).|
+        | `username`  | path | Yes      | The username of the user to warn.        |
+
+        **Body parameters**
+
+        | Field       | Type   | Required | Description                                           |
+        |-------------|--------|----------|-------------------------------------------------------|
+        | `reason`    | string | Yes      | A description of the rule violation.                  |
+        | `contentId` | string | No       | ID of the offending post or comment (e.g. `post-1`).  |
+        | `rule`      | string | No       | The specific community rule that was violated.        |
+
+        **Returns**
+
+        The created [Warning](#/components/schemas/Warning) object containing
+        the warning details, issuing moderator, and timestamp.
+      operationId: warnUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: username
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The username of the user to warn.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+                  description: A description of the rule violation.
+                contentId:
+                  type: string
+                  description: ID of the offending post or comment.
+                rule:
+                  type: string
+                  description: The specific community rule violated.
+      responses:
+        "201":
+          description: Warning issued.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Warning"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    get:
+      tags: [Moderation]
+      summary: List warnings for a user
+      description: |
+        Returns a list of all warnings issued to a user in the specified
+        subreddit, ordered by most recent first.
+
+        Moderators use this endpoint to review a user's warning history before
+        deciding on escalation (e.g., temporary or permanent ban).
+        **Requires moderator privileges.**
+
+        **Parameters**
+
+        | Parameter   | In   | Required | Description                              |
+        |-------------|------|----------|------------------------------------------|
+        | `subreddit` | path | Yes      | Subreddit name (without the `r/` prefix).|
+        | `username`  | path | Yes      | The username whose warnings to retrieve. |
+
+        **Returns**
+
+        A JSON object with a `data` array of
+        [Warning](#/components/schemas/Warning) objects.
+      operationId: listUserWarnings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - $ref: "#/components/parameters/UsernameParam"
+      responses:
+        "200":
+          description: List of warnings for the user.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Warning"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ── Mod Mail ────────────────────────────────
+  /r/{subreddit}/modmail:
+    get:
+      tags: [Mod Mail]
+      summary: List all modmail threads
+      description: |
+        Returns a paginated list of **all** mod mail threads in the
+        subreddit, across every user. Threads are ordered by most recent
+        activity (newest first). **Requires moderator privileges.**
+
+        Use the optional `filter` parameter to narrow results by read
+        status. The read status is **per-moderator** — each moderator has
+        their own independent read/unread state for every thread. When
+        filtering by `unread`, only threads the **requesting moderator**
+        has not yet read are returned. This prevents one moderator from
+        marking a thread as read for the entire team.
+
+        **Parameters**
+
+        | Parameter   | In    | Required | Description                                                          |
+        |-------------|-------|----------|----------------------------------------------------------------------|
+        | `subreddit` | path  | Yes      | Subreddit name (without the `r/` prefix).                            |
+        | `filter`    | query | No       | Filter by read status for the **requesting moderator**: `all` (default), `unread`, `read`. |
+        | `sort`      | query | No       | Sort order: `newest` (default) or `oldest`.                          |
+        | `limit`     | query | No       | Maximum threads per page (1-100, default 25).                        |
+        | `after`     | query | No       | Cursor — pass the `after` value from the previous page to paginate.  |
+
+        **Returns**
+
+        A JSON object with a `data` array of
+        [ModMail](#/components/schemas/ModMail) thread objects and a
+        `pagination` object for cursor-based navigation. The `readBy`
+        field on each thread is an array of moderator usernames who have
+        read the thread.
+      operationId: listAllModMail
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: filter
+          in: query
+          description: |
+            Filter threads by read status **for the requesting moderator**.
+            - `all` — Return all threads (default).
+            - `unread` — Only threads the requesting moderator has NOT read.
+            - `read` — Only threads the requesting moderator HAS read.
+          schema:
+            type: string
+            enum: [all, unread, read]
+            default: all
+        - name: sort
+          in: query
+          description: Sort order by last activity.
+          schema:
+            type: string
+            enum: [newest, oldest]
+            default: newest
+        - $ref: "#/components/parameters/LimitParam"
+        - $ref: "#/components/parameters/AfterParam"
+      responses:
+        "200":
+          description: All mod mail threads in the subreddit.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModMail"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /r/{subreddit}/modmail/{username}:
+    get:
+      tags: [Mod Mail]
+      summary: List modmail threads with given username
+      description: |
+        Returns a paginated list of mod mail threads between the subreddit's
+        moderation team and the specified user.
+
+        If no previous conversation exists with the user, an empty `data`
+        array is returned. Threads are ordered by most recent activity.
+        The `readBy` field tracks which moderators have read each thread
+        independently. **Requires moderator privileges.**
+
+        **Parameters**
+
+        | Parameter   | In    | Required | Description                                      |
+        |-------------|-------|----------|--------------------------------------------------|
+        | `subreddit` | path  | Yes      | Subreddit name (without the `r/` prefix).        |
+        | `username`  | path  | Yes      | Username of the user to view conversations with. |
+        | `filter`    | query | No       | Filter threads by read status **for the requesting moderator**: `all`, `unread`, `read` (default `all`). |
+
+        **Returns**
+
+        A JSON object with a `data` array of
+        [ModMail](#/components/schemas/ModMail) thread objects and a
+        `pagination` object.
+      operationId: listModMailByUser
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - $ref: "#/components/parameters/UsernameParam"
+        - name: filter
+          in: query
+          description: |
+            Filter threads by read status **for the requesting moderator**.
+            - `all` — Return all threads (default).
+            - `unread` — Only threads the requesting moderator has NOT read.
+            - `read` — Only threads the requesting moderator HAS read.
+          schema:
+            type: string
+            enum: [all, unread, read]
+            default: all
+      responses:
+        "200":
+          description: Mod mail threads with the user.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModMail"
+                  pagination:
+                    $ref: "#/components/schemas/Pagination"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    post:
+      tags: [Mod Mail]
+      summary: Send modmail to given user
+      description: |
+        Sends a message to the specified user on behalf of the moderation
+        team, creating a new thread or adding to an existing one.
+
+        If a thread with the same `subject` already exists for this user, the
+        message is appended to it as a reply. Otherwise, a new thread is
+        created. This unified endpoint eliminates the need for separate
+        "create thread" and "reply" operations — the server handles thread
+        resolution automatically.
+
+        The message appears in the user's inbox as from the subreddit
+        moderators (not the individual moderator). The user receives a
+        notification. A mod log entry is created. **Requires moderator
+        privileges.**
+
+        **Parameters**
+
+        | Parameter   | In   | Required | Description                              |
+        |-------------|------|----------|------------------------------------------|
+        | `subreddit` | path | Yes      | Subreddit name (without the `r/` prefix).|
+        | `username`  | path | Yes      | Recipient username.                      |
+
+        **Body parameters**
+
+        | Field     | Type   | Required | Description                                              |
+        |-----------|--------|----------|----------------------------------------------------------|
+        | `subject` | string | Yes      | Thread subject. Used for thread matching.                |
+        | `content` | string | Yes      | Message body text.                                       |
+
+        **Returns**
+
+        The [ModMail](#/components/schemas/ModMail) thread object, including
+        all messages in the thread. If the thread was newly created, it will
+        contain a single message. If appended, it includes the full history.
+      operationId: sendModMail
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - $ref: "#/components/parameters/UsernameParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subject, content]
+              properties:
+                subject:
+                  type: string
+                  description: Thread subject. Used to match existing threads.
+                content:
+                  type: string
+                  description: Message body text.
+      responses:
+        "201":
+          description: Message sent (thread created or appended).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModMail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /r/{subreddit}/modmail/{username}/{mailId}:
+    get:
+      tags: [Mod Mail]
+      summary: Get a modmail thread
+      description: |
+        Retrieves a single mod mail thread including all messages.
+
+        The response contains the thread metadata and a `messages` array
+        with every message in the conversation. Each message includes the
+        author (prefixed with `mod:` for moderators), content, and timestamp.
+        **Requires moderator privileges.**
+
+        **Parameters**
+
+        | Parameter   | In   | Required | Description                              |
+        |-------------|------|----------|------------------------------------------|
+        | `subreddit` | path | Yes      | Subreddit name (without the `r/` prefix).|
+        | `username`  | path | Yes      | Username of the conversation participant. |
+        | `mailId`    | path | Yes      | Unique ID of the mod mail thread.        |
+
+        **Returns**
+
+        The [ModMail](#/components/schemas/ModMail) thread object with the
+        complete message history.
+      operationId: getModMail
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - $ref: "#/components/parameters/UsernameParam"
+        - name: mailId
+          in: path
+          required: true
+          description: Unique identifier of the mod mail thread.
+          schema:
+            type: string
+            example: mm-1
+      responses:
+        "200":
+          description: Mod mail thread with all messages.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModMail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    patch:
+      tags: [Mod Mail]
+      summary: Mark thread as read/unread
+      description: |
+        Updates the read status of a modmail thread **for the requesting
+        moderator only**.
+
+        The read state is tracked **per moderator** via the `readBy` array.
+        When `read: true` is sent, the requesting moderator's username is
+        added to `readBy`. When `read: false` is sent, the username is
+        removed. This ensures that one moderator marking a thread as read
+        does **not** hide it from other moderators' unread queues.
+
+        The operation is **idempotent** — marking an already-read thread as
+        read (or an already-unread thread as unread) has no additional effect.
+
+        **Requires moderator privileges.**
+
+        **Parameters**
+
+        | Parameter   | In   | Required | Description                              |
+        |-------------|------|----------|------------------------------------------|
+        | `subreddit` | path | Yes      | Subreddit name (without the `r/` prefix).|
+        | `username`  | path | Yes      | Username of the conversation participant. |
+        | `mailId`    | path | Yes      | Unique ID of the mod mail thread.        |
+
+        **Body parameters**
+
+        | Field  | Type    | Required | Description                                              |
+        |--------|---------|----------|----------------------------------------------------------|
+        | `read` | boolean | Yes      | `true` to mark as read, `false` to mark as unread.       |
+
+        **Returns**
+
+        The updated [ModMail](#/components/schemas/ModMail) thread object.
+        The `readBy` array reflects the updated list of moderators who have
+        read the thread.
+      operationId: markModMailRead
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - $ref: "#/components/parameters/UsernameParam"
+        - name: mailId
+          in: path
+          required: true
+          description: Unique identifier of the mod mail thread.
+          schema:
+            type: string
+            example: mm-1
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [read]
+              properties:
+                read:
+                  type: boolean
+                  description: Whether the thread has been read.
+      responses:
+        "200":
+          description: The updated mod mail thread.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModMail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── Community Settings ──────────────────────
+  /r/{subreddit}/settings:
+    get:
+      tags: [Community Settings]
+      summary: Get subreddit settings
+      description: |
+        Returns the current configuration for the specified subreddit.
+        **Requires moderator privileges.**
+
+        The response includes all editable settings such as the community
+        description, long description, NSFW flag, and other metadata. This
+        is the read counterpart to `PATCH /r/{subreddit}/settings`.
+
+        **Parameters**
+
+        | Parameter   | In   | Required | Description                              |
+        |-------------|------|----------|------------------------------------------|
+        | `subreddit` | path | Yes      | Subreddit name (without the `r/` prefix).|
+
+        **Returns**
+
+        A [Subreddit](#/components/schemas/Subreddit) object containing
+        the full community configuration.
+      operationId: getSubredditSettings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: Current settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subreddit"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    patch:
+      tags: [Community Settings]
+      summary: Update subreddit settings
+      description: |
+        Updates the community description, long description, and other
+        configurable settings.
+
+        Only the fields included in the request body are updated; omitted
+        fields remain unchanged. This is a partial-update (merge) operation.
+        A mod log entry is created for the change. **Requires moderator
+        privileges.**
+
+      operationId: updateSubredditSettings
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                description:
+                  type: string
+                longDescription:
+                  type: string
+      responses:
+        "200":
+          description: Settings updated.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/rules:
+    get:
+      tags: [Community Settings]
+      security: []
+      summary: List rules
+      description: |
+        Returns all community rules for the subreddit.
+
+        Rules are ordered by their display position. Each rule has an `id`,
+        `title`, and `description`. This endpoint is public—no authentication
+        is required.
+
+      operationId: listRules
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: Rules.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SubredditRule"
+        "404":
+          description: |
+            The specified subreddit does not exist. This prevents clients
+            from confusing a non-existent subreddit (which should be a 404)
+            with an existing subreddit that simply has no rules (200 with
+            an empty `data` array).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: not_found
+                  message: "Subreddit 'nonexistent' does not exist."
+    post:
+      tags: [Community Settings]
+      summary: Add a rule
+      description: |
+        Adds a new rule to the subreddit. The rule is appended to the end
+        of the current rule list.
+
+        Both `title` and `description` are required. The title appears as
+        the rule heading, and the description provides details. Use the
+        reorder endpoint to change the position of rules after creation.
+        **Requires moderator privileges.**
+
+      operationId: addRule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, description]
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+      responses:
+        "201":
+          description: Rule added.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SubredditRule"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/rules/{ruleId}:
+    patch:
+      tags: [Community Settings]
+      summary: Edit a rule
+      description: |
+        Updates the title and/or description of an existing community rule.
+
+        Only the fields included in the request body are updated. The rule's
+        position in the list is not affected. A mod log entry is created.
+        **Requires moderator privileges.**
+
+      operationId: editRule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                description:
+                  type: string
+      responses:
+        "200":
+          description: Rule updated.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [Community Settings]
+      summary: Delete a rule
+      description: |
+        Permanently removes a community rule from the subreddit.
+
+        Once deleted, a rule cannot be recovered. Remaining rules
+        automatically re-index their positions. A mod log entry is created.
+        **Requires moderator privileges.**
+
+      operationId: deleteRule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/rules/order:
+    put:
+      tags: [Community Settings]
+      summary: Reorder rules
+      description: |
+        Sets the display order of community rules by providing an ordered
+        list of rule IDs.
+
+        The `ruleIds` array must include **every** existing rule ID. The new
+        order is determined by the array index. If any IDs are missing or
+        invalid, the request is rejected. **Requires moderator privileges.**
+
+      operationId: reorderRules
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ruleIds]
+              properties:
+                ruleIds:
+                  type: array
+                  items:
+                    type: string
+                  description: Ordered list of rule IDs.
+      responses:
+        "200":
+          description: Rules reordered.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/flairs:
+    get:
+      tags: [Community Settings]
+      security: []
+      summary: List post flairs
+      description: |
+        Returns the list of available post flairs for the subreddit.
+
+        Flairs are string labels that authors can attach to their posts
+        (e.g., "Discussion", "Tutorial", "Question"). This endpoint is
+        public and does not require authentication.
+
+      operationId: listFlairs
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: Available flairs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: string
+        "404":
+          description: |
+            The specified subreddit does not exist. Distinguishes a
+            non-existent subreddit from one with no flairs configured
+            (which returns 200 with an empty `data` array).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: not_found
+                  message: "Subreddit 'nonexistent' does not exist."
+    post:
+      tags: [Community Settings]
+      summary: Add a flair
+      description: |
+        Creates a new post flair for the subreddit.
+
+        Flair names must be unique within the subreddit. If a flair with the
+        same name already exists, a `409 Conflict` is returned. **Requires
+        moderator privileges.**
+
+      operationId: addFlair
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  example: Discussion
+      responses:
+        "201":
+          description: Flair added.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/flairs/{flair}:
+    delete:
+      tags: [Community Settings]
+      summary: Delete a flair
+      description: |
+        Removes a post flair from the subreddit.
+
+        Existing posts that use this flair **retain** their flair label, but
+        new posts can no longer select it. The deletion is permanent.
+        **Requires moderator privileges.**
+
+      operationId: deleteFlair
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: flair
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/moderators:
+    get:
+      tags: [Community Settings]
+      security: []
+      summary: List moderators
+      description: |
+        Returns the list of usernames of all moderators for the subreddit.
+
+        This endpoint is public and does not require authentication.
+        Moderators are returned in the order they were added to the team.
+
+      operationId: listModerators
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: Moderator list.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: string
+                      example: admin
+        "404":
+          description: |
+            The specified subreddit does not exist. Distinguishes a
+            non-existent subreddit from a valid one (every subreddit has
+            at least one moderator — the creator).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error:
+                  code: not_found
+                  message: "Subreddit 'nonexistent' does not exist."
+
+  # ── AutoMod ─────────────────────────────────
+  /r/{subreddit}/automod/rules:
+    get:
+      tags: [AutoMod]
+      summary: List AutoMod rules
+      description: |
+        Returns all AutoMod rules configured for the specified subreddit.
+        **Requires moderator privileges.**
+
+        Each rule defines a condition (field + operator + value) and an
+        action to perform when the condition matches. Rules are evaluated
+        in order against every new post and comment.
+
+        Use this endpoint to display the AutoMod configuration dashboard.
+        To create new rules, use `POST /r/{subreddit}/automod/rules`.
+
+        **Parameters**
+
+        | Parameter   | In   | Required | Description                              |
+        |-------------|------|----------|------------------------------------------|
+        | `subreddit` | path | Yes      | Subreddit name (without the `r/` prefix).|
+
+        **Returns**
+
+        A JSON object with a `data` array of
+        [AutoModRule](#/components/schemas/AutoModRule) objects.
+      operationId: listAutoModRules
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: AutoMod rules.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AutoModRule"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [AutoMod]
+      summary: Create an AutoMod rule
+      description: |
+        Creates a new AutoMod rule for the subreddit.
+
+        The rule immediately begins evaluating new content unless `enabled`
+        is set to `false`. The condition is defined by `conditionField`,
+        `operator`, and `value`. The `action` determines what happens when
+        the condition matches. **Requires moderator privileges.**
+
+        **Supported condition fields:**
+        `post_title`, `post_body`, `comment_body`, `user_age`,
+        `account_karma`, `post_flair`, `domain`, `author_name`
+
+        **Supported operators:**
+        `contains`, `matches`, `greater_than`, `less_than`, `equals`
+
+        **Supported actions:**
+        `approve`, `remove`, `flag`, `send_modmail`, `lock`, `sticky`,
+        `set_flair`
+
+      operationId: createAutoModRule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutoModRuleCreate"
+      responses:
+        "201":
+          description: Rule created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AutoModRule"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/automod/rules/{ruleId}:
+    put:
+      tags: [AutoMod]
+      summary: Replace an AutoMod rule
+      description: |
+        Completely replaces an existing AutoMod rule configuration.
+
+        All fields from the `AutoModRuleCreate` schema are required. Any
+        fields omitted in the request will be removed or reset to defaults.
+        The change is recorded in the AutoMod edit history. **Requires moderator
+        privileges.**
+
+      operationId: replaceAutoModRule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AutoModRuleCreate"
+      responses:
+        "200":
+          description: Rule updated.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    patch:
+      tags: [AutoMod]
+      summary: Toggle an AutoMod rule
+      description: |
+        Enables or disables an AutoMod rule without changing its configuration.
+
+        Use this endpoint to temporarily disable a rule that is causing
+        false positives, or to re-enable a previously disabled rule. The
+        rule configuration is preserved. **Requires moderator privileges.**
+
+      operationId: toggleAutoModRule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: Toggled.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [AutoMod]
+      summary: Delete an AutoMod rule
+      description: |
+        Permanently deletes an AutoMod rule from the subreddit.
+
+        Once deleted, the rule stops evaluating content immediately and
+        cannot be recovered. The deletion is recorded in the AutoMod edit
+        history. **Requires moderator privileges.**
+
+      operationId: deleteAutoModRule
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: ruleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/automod/tests:
+    post:
+      tags: [AutoMod]
+      summary: Test AutoMod rules
+      description: |
+        Simulates AutoMod evaluation against sample content without
+        actually taking any action.
+
+        Provide sample post or comment data (title, body, author, karma,
+        account age, domain, flair) and the response indicates which rules
+        would be triggered and what actions they would take. This is
+        invaluable for debugging rules before enabling them in production.
+        **Requires moderator privileges.**
+
+      operationId: testAutoMod
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                body:
+                  type: string
+                author:
+                  type: string
+                karma:
+                  type: integer
+                accountAge:
+                  type: integer
+                  description: Account age in days.
+                domain:
+                  type: string
+                flair:
+                  type: string
+      responses:
+        "200":
+          description: Test results.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  triggered:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ruleId:
+                          type: string
+                        ruleName:
+                          type: string
+                        action:
+                          type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/automod/logs:
+    get:
+      tags: [AutoMod]
+      summary: List AutoMod action logs
+      description: |
+        Returns a log of all actions taken by AutoMod in the subreddit.
+
+        Each entry records the rule that triggered, the content it matched,
+        and the action that was taken. Use the `status` filter to narrow
+        results:
+        - `all` — All actions (default).
+        - `removed` — Content that was auto-removed.
+        - `flagged` — Content that was flagged for review.
+        - `modmailed` — Actions that sent mod mail.
+        - `flair_set` — Posts where flair was auto-set.
+
+        **Requires moderator privileges.**
+
+      operationId: listAutoModLogs
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [all, removed, flagged, modmailed, flair_set]
+            default: all
+      responses:
+        "200":
+          description: Action logs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ruleId:
+                          type: string
+                        ruleName:
+                          type: string
+                        action:
+                          type: string
+                        targetType:
+                          type: string
+                        targetId:
+                          type: string
+                        timestamp:
+                          type: string
+                          format: date-time
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /r/{subreddit}/automod/history:
+    get:
+      tags: [AutoMod]
+      summary: AutoMod edit history
+      description: |
+        Returns the change history of AutoMod rule configurations.
+
+        Every time a rule is created, updated, toggled, duplicated, or
+        deleted, an entry is recorded here. This provides an audit trail
+        for debugging unexpected AutoMod behavior. **Requires moderator
+        privileges.**
+
+      operationId: getAutoModHistory
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: Edit history.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ruleId:
+                          type: string
+                        action:
+                          type: string
+                        moderator:
+                          type: string
+                        timestamp:
+                          type: string
+                          format: date-time
+                        changes:
+                          type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ── Traffic Stats ───────────────────────────
+  /r/{subreddit}/traffic:
+    get:
+      tags: [Traffic Stats]
+      summary: Get traffic statistics
+      description: |
+        Returns analytics and growth metrics for the specified subreddit.
+        **Requires moderator privileges.**
+
+        The response includes current member count, online users, daily
+        page views, post and comment volumes, and growth trends. This
+        data powers the Traffic Stats page in the moderator tools.
+
+        Statistics are computed daily. The `growth` object contains
+        percentage changes over the last 7 and 30 days for key metrics.
+
+        **Parameters**
+
+        | Parameter   | In   | Required | Description                              |
+        |-------------|------|----------|------------------------------------------|
+        | `subreddit` | path | Yes      | Subreddit name (without the `r/` prefix).|
+
+        **Returns**
+
+        A [TrafficStats](#/components/schemas/TrafficStats) object containing
+        current metrics and growth trends.
+      operationId: getTrafficStats
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: Traffic data.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrafficStats"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ── Sidebar ─────────────────────────────────
+  /r/{subreddit}/sidebar:
+    get:
+      tags: [Sidebar]
+      security: []
+      summary: Get community sidebar
+      description: |
+        Returns the community's sidebar page.
+
+        This is a single, static content page that provides an overview of the
+        community — its purpose, guidelines summary, useful links, and any
+        other information moderators want prominently displayed. Unlike wiki
+        pages, the sidebar has no hierarchy or revision history; it is
+        a flat document that is always available at this fixed path.
+
+        The sidebar is created automatically when the subreddit is created,
+        with empty content. It is publicly accessible.
+
+        **Parameters**
+
+        | Parameter   | In   | Required | Description                              |
+        |-------------|------|----------|------------------------------------------|
+        | `subreddit` | path | Yes      | Subreddit name (without the `r/` prefix).|
+
+        **Returns**
+
+        A [Sidebar](#/components/schemas/Sidebar) object containing the
+        subreddit name, Markdown content, last editor, and last edit timestamp.
+      operationId: getSidebar
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      responses:
+        "200":
+          description: The community sidebar.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sidebar"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    put:
+      tags: [Sidebar]
+      summary: Update community sidebar
+      description: |
+        Replaces the sidebar content with the provided Markdown.
+
+        The `content` field accepts Markdown formatting. Since this is a
+        single static page, `PUT` replaces the entire content. The
+        `lastEditedBy` and `lastEditedAt` fields are set automatically.
+        **Requires moderator privileges.**
+
+        **Parameters**
+
+        | Parameter   | In   | Required | Description                              |
+        |-------------|------|----------|------------------------------------------|
+        | `subreddit` | path | Yes      | Subreddit name (without the `r/` prefix).|
+
+        **Body parameters**
+
+        | Field     | Type   | Required | Description                          |
+        |-----------|--------|----------|--------------------------------------|
+        | `content` | string | Yes      | Full Markdown content for the page.  |
+
+        **Returns**
+
+        The updated [Sidebar](#/components/schemas/Sidebar) object.
+      operationId: updateSidebar
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content:
+                  type: string
+                  description: Full Markdown content for the sidebar.
+      responses:
+        "200":
+          description: Sidebar updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sidebar"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  # ── Wiki ────────────────────────────────────
+  /r/{subreddit}/wiki:
+    get:
+      tags: [Wiki]
+      security: []
+      summary: List wiki pages
+      description: |
+        Returns a flat list of all wiki pages in the subreddit.
+
+        Each entry includes the page's `slug` (its hierarchical path),
+        `title`, last editor, and last edit timestamp. The list is ordered
+        alphabetically by slug.
+
+        Wiki pages support **hierarchical slugs** using `/` as a separator.
+        For example, `guides/beginner/setup` represents a page nested under
+        `guides/beginner`. The hierarchy is purely organizational — each
+        slug is an independent page and parent pages do not need to exist
+        for child pages to be created.
+
+        Use the `parent` query parameter to list only direct children of a
+        given path, enabling tree-like navigation.
+
+        **Parameters**
+
+        | Parameter   | In    | Required | Description                                        |
+        |-------------|-------|----------|----------------------------------------------------|
+        | `subreddit` | path  | Yes      | Subreddit name (without the `r/` prefix).          |
+        | `parent`    | query | No       | Filter to pages directly under this path. Omit for all pages. |
+
+        **Returns**
+
+        A JSON object with a `data` array of
+        [WikiPage](#/components/schemas/WikiPage) objects (without `content`
+        to keep the listing lightweight).
+      operationId: listWikiPages
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: parent
+          in: query
+          required: false
+          description: |
+            Filter to direct children of this path. For example, `parent=guides`
+            returns pages like `guides/beginner` and `guides/advanced` but not
+            `guides/beginner/setup`. Omit to return all pages.
+          schema:
+            type: string
+            example: guides
+      responses:
+        "200":
+          description: Wiki page index.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/WikiPage"
+
+  /r/{subreddit}/wiki/pages/{slug}:
+    get:
+      tags: [Wiki]
+      security: []
+      summary: Get a wiki page
+      description: |
+        Retrieves the full content of a single wiki page by its slug.
+
+        The `slug` path parameter supports hierarchical paths URL-encoded.
+        For example, `guides/beginner/setup` should be encoded as `guides%2Fbeginner%2Fsetup`.
+        This allows wiki pages to be organized in a tree structure. Each slug segment can contain
+        alphanumeric characters, hyphens, and underscores.
+
+        The response includes the page slug, title, full Markdown content,
+        last editor, last edit timestamp, and total revision count. Returns
+        `404` if the page does not exist.
+
+        This endpoint is public and does not require authentication.
+
+        **Parameters**
+
+        | Parameter   | In    | Required | Description                              |
+        |-------------|-------|----------|------------------------------------------|
+        | `subreddit` | path  | Yes      | Subreddit name (without the `r/` prefix).|
+        | `slug`      | path  | Yes      | URL-encoded hierarchical page path (e.g., `faq` or `guides%2Fbeginner%2Fsetup`). |
+
+        **Returns**
+
+        A [WikiPage](#/components/schemas/WikiPage) object including the
+        full Markdown `content`, and optionally the `parent` slug and a
+        `children` array listing direct child page slugs for navigation.
+      operationId: getWikiPage
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: slug
+          in: path
+          required: true
+          description: |
+            The hierarchical page path. Use `/` to separate levels
+            (e.g., `guides/beginner/setup`). Matched exactly.
+          schema:
+            type: string
+            example: guides/beginner/setup
+      responses:
+        "200":
+          description: Wiki page content.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WikiPage"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [Wiki]
+      summary: Create or update a wiki page
+      description: |
+        Creates a new wiki page at the given slug, or updates it if it
+        already exists.
+
+        The `slug` path parameter supports hierarchical paths URL-encoded.
+        For example, `guides/beginner/setup` should be encoded as `guides%2Fbeginner%2Fsetup`.
+        Parent pages do **not** need to exist before creating a child page
+        — the hierarchy is implicit in the slug. However, if you want navigable
+        parent pages, you should create them separately.
+
+        The `content` field accepts Markdown formatting. Each edit creates
+        a new revision in the page's history. The `title` can be set on
+        creation and updated on subsequent edits. **Requires moderator
+        privileges.**
+
+        **Parameters**
+
+        | Parameter   | In    | Required | Description                              |
+        |-------------|-------|----------|------------------------------------------|
+        | `subreddit` | path  | Yes      | Subreddit name (without the `r/` prefix).|
+        | `slug`      | path  | Yes      | URL-encoded hierarchical page path.      |
+
+        **Body parameters**
+
+        | Field     | Type   | Required | Description                                   |
+        |-----------|--------|----------|-----------------------------------------------|
+        | `title`   | string | No       | Page title. Defaults to the slug if omitted.  |
+        | `content` | string | Yes      | Full Markdown content for the page.           |
+
+        **Returns**
+
+        The created or updated [WikiPage](#/components/schemas/WikiPage) object.
+      operationId: editWikiPage
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/SubredditParam"
+        - name: slug
+          in: path
+          required: true
+          description: |
+            The URL-encoded hierarchical page path. Use `%2F` to separate levels.
+          schema:
+            type: string
+            example: guides%2Fbeginner%2Fsetup
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                title:
+                  type: string
+                  description: Page title. Defaults to the slug if omitted on creation.
+                content:
+                  type: string
+                  description: Full Markdown content for the page.
+      responses:
+        "200":
+          description: Page created or updated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WikiPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+# ──────────────────────────────────────────────
+# COMPONENTS
+# ──────────────────────────────────────────────
+components:
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  # ── Reusable Parameters ─────────────────────
+  parameters:
+    SubredditParam:
+      name: subreddit
+      in: path
+      required: true
+      description: Subreddit name (without the `r/` prefix).
+      schema:
+        type: string
+        example: programming
+    PostIdParam:
+      name: postId
+      in: path
+      required: true
+      schema:
+        type: string
+        example: post-1
+    UsernameParam:
+      name: username
+      in: path
+      required: true
+      schema:
+        type: string
+        example: johndoe
+    SortParam:
+      name: sort
+      in: query
+      description: Sort strategy.
+      schema:
+        type: string
+        enum: [hot, new, top, rising, controversial]
+        default: hot
+    TopDurationParam:
+      name: t
+      in: query
+      description: Time window for `top` sort.
+      schema:
+        type: string
+        enum: [hour, day, week, month, year, all]
+        default: day
+    LimitParam:
+      name: limit
+      in: query
+      description: Number of items to return (max 100).
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 25
+    AfterParam:
+      name: after
+      in: query
+      description: Cursor for pagination. Use the value from a previous response's `pagination.after`.
+      schema:
+        type: string
+
+  # ── Reusable Responses ──────────────────────
+  responses:
+    BadRequest:
+      description: Invalid request parameters.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Authentication required.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: unauthorized
+              message: You must be logged in to perform this action.
+    Forbidden:
+      description: Insufficient permissions (e.g. not a moderator).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: forbidden
+              message: You do not have permission to perform this action.
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: not_found
+              message: The requested resource does not exist.
+    TooManyRequests:
+      description: |
+        Rate limit exceeded. Requests are limited to **60/min** for
+        authenticated users and **10/min** for unauthenticated users.
+        Vote endpoints are further limited to **30/min**.
+      headers:
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+          description: Requests left in the current window.
+        X-RateLimit-Reset:
+          schema:
+            type: integer
+          description: Seconds until the rate-limit window resets.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: rate_limit_exceeded
+              message: Too many requests. Please try again later.
+
+  # ── Schemas ─────────────────────────────────
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: not_found
+            message:
+              type: string
+              example: The requested resource does not exist.
+
+    Pagination:
+      type: object
+      properties:
+        after:
+          type: string
+          nullable: true
+          description: Cursor for the next page. `null` if no more results.
+        count:
+          type: integer
+        has_more:
+          type: boolean
+
+    User:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [user]
+          description: Resource type discriminator for polymorphic lists (e.g. search results).
+          example: user
+        id:
+          type: string
+          example: user-k8f3m2x9a
+        username:
+          type: string
+          example: johndoe
+        email:
+          type: string
+          format: email
+          example: john@example.com
+        displayName:
+          type: string
+          example: John Doe
+        bio:
+          type: string
+          example: Just a regular guy.
+        avatar:
+          type: string
+          format: uri
+          example: https://example.com/avatar.jpg
+        karma:
+          type: integer
+          example: 1547
+        isModerator:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    Post:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [post]
+          description: Resource type discriminator for polymorphic lists (e.g. search results).
+          example: post
+        id:
+          type: string
+          example: post-1
+        subreddit:
+          type: string
+          example: programming
+        author:
+          type: string
+          example: codeMaster99
+        title:
+          type: string
+        content:
+          type: string
+        type:
+          type: string
+          enum: [text, link, image]
+        url:
+          type: string
+          nullable: true
+          description: Required for `link` and `image` post types.
+        upvotes:
+          type: integer
+        downvotes:
+          type: integer
+        score:
+          type: integer
+          description: Net score (`upvotes - downvotes`).
+        commentCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Timestamp of the last edit. `null` if the post has never been
+            edited. When present, clients should display an "(edited)"
+            indicator.
+        flair:
+          type: string
+          nullable: true
+        flagged:
+          type: boolean
+        removed:
+          type: boolean
+        locked:
+          type: boolean
+        pinned:
+          type: boolean
+        saved:
+          type: boolean
+          description: Whether the authenticated user has saved this post.
+        mediaAssets:
+          type: array
+          description: |
+            Media (images/videos) embedded in this post. For text posts,
+            each asset can be referenced inline via `![caption](assetId)`
+            in the `content` Markdown.
+          items:
+            $ref: "#/components/schemas/MediaAsset"
+        awards:
+          type: array
+          items:
+            $ref: "#/components/schemas/Award"
+
+    PostCreate:
+      type: object
+      required: [title, type]
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+          example: How to optimize React performance
+        content:
+          type: string
+          description: Post body text. Required for `text` type.
+        type:
+          type: string
+          enum: [text, link, image]
+        url:
+          type: string
+          description: |
+            URL for `link` or `image` type posts. For `image` posts,
+            upload the file via `POST /media`, retrieve the `url` from
+            the response's `MediaAsset` object, and pass it here.
+        mediaAssets:
+          type: array
+          description: |
+            Array of asset IDs (returned by `POST /media`) to attach
+            to the post. For text posts, reference these in the `content`
+            field using Markdown image syntax `![caption](assetId)`.
+          items:
+            type: string
+          example: ["asset-abc123", "asset-def456"]
+        flair:
+          type: string
+          nullable: true
+
+    PostUpdate:
+      type: object
+      description: |
+        Fields that can be updated on an existing post. All fields are optional;
+        only the fields you include will be changed. Fields you omit remain
+        unchanged.
+      properties:
+        title:
+          type: string
+          minLength: 1
+          maxLength: 300
+          description: The new title for the post. Must be 1–300 characters.
+          example: "Understanding Big O Notation (Updated)"
+        content:
+          type: string
+          description: |
+            The new body text for the post. Required to be non-empty for text
+            posts. Ignored for link/image posts.
+          example: "Big O notation describes the upper bound of an algorithm's time complexity. Here's a corrected explanation..."
+        flair:
+          type: string
+          nullable: true
+          description: Update the post flair. Set to `null` to remove the flair.
+          example: "Tutorial"
+        mediaAssets:
+          type: array
+          description: |
+            Updated list of asset IDs attached to the post. To add new media,
+            upload via `POST /media` first and include all desired
+            asset IDs. To remove media, omit the asset ID from this array
+            and remove the corresponding `![caption](assetId)` from
+            `content`.
+          items:
+            type: string
+          example: ["asset-abc123"]
+
+    CommentUpdate:
+      type: object
+      required: [content]
+      description: |
+        Payload for updating an existing comment. You can update the `content`
+        and/or `mediaAssets`.
+      properties:
+        content:
+          type: string
+          minLength: 1
+          description: |
+            The new content for the comment. Must be at least 1 character.
+            Markdown formatting is supported. Use `![caption](assetId)` to
+            reference inline media.
+          example: "Great explanation of Big O! I especially liked the visual diagrams. (Edited for clarity)"
+        mediaAssets:
+          type: array
+          description: |
+            Updated list of asset IDs attached to the comment. Upload new
+            assets via `POST /media` first. To remove media, omit
+            the asset ID and remove the `![caption](assetId)` from `content`.
+          items:
+            type: string
+          example: ["asset-diagram1"]
+
+    AwardType:
+      type: object
+      description: Describes an award type available on the platform.
+      properties:
+        type:
+          type: string
+          description: Machine-readable award identifier.
+          example: gold
+        name:
+          type: string
+          description: Human-readable display name.
+          example: Gold
+        icon:
+          type: string
+          description: Emoji or icon URL for the award.
+          example: "🥇"
+        cost:
+          type: integer
+          description: Cost in coins to give this award.
+          example: 500
+        description:
+          type: string
+          description: Short description shown in the award picker.
+          example: For outstanding content
+
+    MediaAsset:
+      type: object
+      description: |
+        Represents an uploaded media file (image or video) that can be
+        embedded in a post or comment. Similar to Reddit's `media_metadata`
+        entries.
+      properties:
+        assetId:
+          type: string
+          description: Unique identifier for the media asset.
+          example: asset-abc123
+        type:
+          type: string
+          enum: [image, video, gif]
+          description: The media type.
+          example: image
+        url:
+          type: string
+          format: uri
+          description: CDN URL of the processed media file.
+          example: https://cdn.example.com/media/asset-abc123.png
+        mimeType:
+          type: string
+          description: MIME type of the uploaded file.
+          example: image/png
+        width:
+          type: integer
+          description: Width in pixels.
+          example: 1200
+        height:
+          type: integer
+          description: Height in pixels.
+          example: 630
+        status:
+          type: string
+          enum: [uploading, processing, valid, failed]
+          description: |
+            Processing status of the asset.
+            - `uploading` — File is being received.
+            - `processing` — Server is generating thumbnails / transcoding.
+            - `valid` — Ready to use.
+            - `failed` — Processing failed; asset cannot be used.
+          example: valid
+
+    Award:
+      type: object
+      properties:
+        type:
+          type: string
+          enum: [gold, silver, helpful, wholesome]
+        count:
+          type: integer
+
+    Comment:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [comment]
+          description: Resource type discriminator for polymorphic lists (e.g. search results).
+          example: comment
+        id:
+          type: string
+        postId:
+          type: string
+        author:
+          type: string
+        content:
+          type: string
+        upvotes:
+          type: integer
+        downvotes:
+          type: integer
+        score:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: |
+            Timestamp of the last edit to this comment. `null` if the comment
+            has never been edited. Clients should display an "(edited)"
+            indicator when this field is set.
+        parentId:
+          type: string
+          nullable: true
+        depth:
+          type: integer
+          description: |
+            Zero-based nesting level of this comment in the tree.
+            `0` = top-level (root) comment, `1` = direct reply to a
+            root comment, etc. Useful for rendering correct indentation
+            and for stitching flat responses from `/comments/more`
+            back into the tree.
+          example: 0
+        flagged:
+          type: boolean
+        removed:
+          type: boolean
+        saved:
+          type: boolean
+          description: |
+            Whether the authenticated user has saved this comment.
+            Always `false` for unauthenticated requests.
+        mediaAssets:
+          type: array
+          description: |
+            Media (images/videos) embedded in this comment. Each asset can
+            be referenced inline via `![caption](assetId)` in the `content`
+            Markdown.
+          items:
+            $ref: "#/components/schemas/MediaAsset"
+        replies:
+          type: array
+          items:
+            oneOf:
+              - $ref: "#/components/schemas/Comment"
+              - $ref: "#/components/schemas/MoreChildren"
+            discriminator:
+              propertyName: kind
+              mapping:
+                comment: "#/components/schemas/Comment"
+                more: "#/components/schemas/MoreChildren"
+          description: |
+            Nested replies (threaded view). May contain `Comment` objects
+            or `MoreChildren` stubs (identified by `kind: "more"`) when
+            the tree is truncated due to depth or sibling limits. Use
+            `GET /posts/{postId}/comments/more` to fetch truncated branches.
+
+    MoreChildren:
+      type: object
+      description: |
+        A lightweight stub inserted in place of omitted comments when the
+        comment tree exceeds the requested `depth` or when there are more
+        sibling replies than fit in the response. Clients should render
+        these as "Load more replies" links and fetch the missing subtree
+        via `GET /posts/{postId}/comments/more`.
+      required: [kind, parentId, childIds, count, depth]
+      properties:
+        kind:
+          type: string
+          enum: [more]
+          description: Discriminator — always `"more"` for this type.
+          example: more
+        parentId:
+          type: string
+          description: The ID of the parent comment these children belong to.
+          example: comment-1
+        childIds:
+          type: array
+          description: |
+            IDs of the omitted comments. Pass these to the
+            `GET /posts/{postId}/comments/more?children=...` endpoint
+            to retrieve the full subtree. Maximum 100 IDs per stub.
+          items:
+            type: string
+          example: ["comment-5", "comment-6", "comment-7"]
+        count:
+          type: integer
+          description: Total number of comments (including nested descendants) hidden behind this stub.
+          example: 15
+        depth:
+          type: integer
+          description: The depth level at which this stub appears in the tree.
+          example: 3
+
+    Subreddit:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [subreddit]
+          description: Resource type discriminator for polymorphic lists (e.g. search results).
+          example: subreddit
+        name:
+          type: string
+          example: programming
+        description:
+          type: string
+          example: Computer Programming
+        longDescription:
+          type: string
+        members:
+          type: integer
+          example: 7500000
+        online:
+          type: integer
+          example: 12400
+        icon:
+          type: string
+        banner:
+          type: string
+        moderators:
+          type: array
+          items:
+            type: string
+        rules:
+          type: array
+          items:
+            $ref: "#/components/schemas/SubredditRule"
+        flairs:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        isNSFW:
+          type: boolean
+
+    Membership:
+      type: object
+      description: Represents a user's membership in a subreddit.
+      properties:
+        subreddit:
+          type: string
+          description: Name of the subreddit.
+          example: programming
+        username:
+          type: string
+          description: Username of the member.
+          example: johndoe
+        role:
+          type: string
+          enum: [member, moderator]
+          description: The user's role in the community.
+          example: member
+        joinedAt:
+          type: string
+          format: date-time
+          description: When the user joined the community.
+          example: "2026-03-01T12:00:00Z"
+        
+    SubredditRule:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+
+    AutoModRule:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        enabled:
+          type: boolean
+        conditionField:
+          type: string
+          enum:
+            - post_title
+            - post_body
+            - comment_body
+            - user_age
+            - account_karma
+            - post_flair
+            - domain
+            - author_name
+        operator:
+          type: string
+          enum: [contains, matches, greater_than, less_than, equals]
+        value:
+          type: string
+        action:
+          type: string
+          enum: [approve, remove, flag, send_modmail, lock, sticky, set_flair]
+        actionFlair:
+          type: string
+          nullable: true
+        messageToUser:
+          type: string
+          nullable: true
+        modmailSubject:
+          type: string
+          nullable: true
+        modmailBody:
+          type: string
+          nullable: true
+        lastEditedBy:
+          type: string
+        lastEditedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+
+    AutoModRuleCreate:
+      type: object
+      required: [name, conditionField, operator, value, action]
+      properties:
+        name:
+          type: string
+          example: Block spam domains
+        enabled:
+          type: boolean
+          default: true
+        conditionField:
+          type: string
+          enum:
+            - post_title
+            - post_body
+            - comment_body
+            - user_age
+            - account_karma
+            - post_flair
+            - domain
+            - author_name
+        operator:
+          type: string
+          enum: [contains, matches, greater_than, less_than, equals]
+        value:
+          type: string
+          example: "spam.example.com"
+        action:
+          type: string
+          enum: [approve, remove, flag, send_modmail, lock, sticky, set_flair]
+        actionFlair:
+          type: string
+        messageToUser:
+          type: string
+        modmailSubject:
+          type: string
+        modmailBody:
+          type: string
+
+    ModLogEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        subreddit:
+          type: string
+        moderator:
+          type: string
+        action:
+          type: string
+          enum:
+            - remove_post
+            - remove_comment
+            - approve_post
+            - approve_comment
+            - ban_user
+            - unban_user
+            - warn_user
+            - mute_user
+            - lock_post
+            - pin_post
+            - edit_flair
+            - update_rules
+        targetUser:
+          type: string
+          nullable: true
+        targetContent:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        timestamp:
+          type: string
+          format: date-time
+
+    ModQueueItem:
+      type: object
+      description: |
+        A post or comment that was reported / flagged by one or more users
+        and is awaiting moderator review.
+      properties:
+        id:
+          type: string
+          description: Globally unique content ID (same as the post or comment ID).
+          example: post-1
+        type:
+          type: string
+          enum: [post, comment, user]
+          description: The kind of content that was reported.
+        status:
+          type: string
+          enum: [pending, approved, removed]
+          description: |
+            Current review status. `pending` = not yet reviewed,
+            `approved` = cleared by a mod, `removed` = content hidden.
+          default: pending
+          example: pending
+        flagReason:
+          type: string
+          description: |
+            The most common / first reason given by reporters. Useful for
+            quick triage without inspecting every individual report.
+          example: spam
+        reportCount:
+          type: integer
+          description: Total number of user reports for this item.
+          example: 3
+        reports:
+          type: array
+          description: |
+            Individual user reports. Populated when fetching a single item
+            via `GET /r/{subreddit}/modqueue/{contentId}`. May be omitted
+            or empty in list responses to keep payloads small.
+          items:
+            type: object
+            properties:
+              reporter:
+                type: string
+                description: Username of the reporter.
+                example: user-abc
+              reason:
+                type: string
+                description: Reason selected by the reporter.
+                example: spam
+              createdAt:
+                type: string
+                format: date-time
+                description: When the report was filed.
+                example: "2026-02-25T08:12:00Z"
+        post:
+          $ref: "#/components/schemas/Post"
+        comment:
+          $ref: "#/components/schemas/Comment"
+        createdAt:
+          type: string
+          format: date-time
+          description: When the first report was filed (i.e. when the item entered the queue).
+          example: "2026-02-25T08:12:00Z"
+        reviewedBy:
+          type: string
+          nullable: true
+          description: Username of the moderator who reviewed the item, or `null` if still pending.
+          example: null
+        reviewedAt:
+          type: string
+          format: date-time
+          nullable: true
+          description: When the item was reviewed, or `null` if still pending.
+          example: null
+
+    BannedUser:
+      type: object
+      properties:
+        username:
+          type: string
+        subreddit:
+          type: string
+        reason:
+          type: string
+        bannedBy:
+          type: string
+        bannedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        permanent:
+          type: boolean
+
+    Warning:
+      type: object
+      description: |
+        Represents an official moderator warning issued to a user for a
+        rule violation in a subreddit.
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the warning.
+          example: warn-a1b2c3
+        subreddit:
+          type: string
+          description: Subreddit the warning was issued in.
+          example: programming
+        username:
+          type: string
+          description: The warned user's username.
+          example: johndoe
+        reason:
+          type: string
+          description: Description of the rule violation.
+          example: "Please keep discussions civil."
+        contentId:
+          type: string
+          nullable: true
+          description: ID of the offending post or comment, if applicable.
+          example: comment-42
+        rule:
+          type: string
+          nullable: true
+          description: The specific community rule that was violated.
+          example: "Be respectful"
+        warnedBy:
+          type: string
+          description: Username of the moderator who issued the warning.
+          example: admin
+        timestamp:
+          type: string
+          format: date-time
+          description: When the warning was issued.
+
+    ModMail:
+      type: object
+      properties:
+        id:
+          type: string
+        subreddit:
+          type: string
+        username:
+          type: string
+          description: The non-moderator participant in the conversation.
+        subject:
+          type: string
+        messages:
+          type: array
+          description: All messages in the thread, in chronological order.
+          items:
+            type: object
+            properties:
+              from:
+                type: string
+                description: "Author of the message. Moderators are prefixed with `mod:` (e.g. `mod:admin`)."
+              content:
+                type: string
+              timestamp:
+                type: string
+                format: date-time
+        readBy:
+          type: array
+          description: |
+            List of moderator usernames who have read this thread. The read
+            state is **per moderator** — when a moderator marks a thread as
+            read, only their username is added to this array. Other moderators'
+            unread queues are not affected.
+
+            When filtering mod mail by `unread`, the server checks whether
+            the requesting moderator's username is absent from `readBy`.
+          items:
+            type: string
+          example: ["admin", "modUser42"]
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    UserMessage:
+      type: object
+      properties:
+        id:
+          type: string
+        from:
+          type: string
+        to:
+          type: string
+        subject:
+          type: string
+        content:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        read:
+          type: boolean
+        parentId:
+          type: string
+          nullable: true
+
+    Notification:
+      type: object
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum:
+            - comment_reply
+            - post_reply
+            - mention
+            - award
+            - mod_action
+            - upvote_milestone
+        content:
+          type: string
+        link:
+          type: string
+        read:
+          type: boolean
+        timestamp:
+          type: string
+          format: date-time
+
+    Sidebar:
+      type: object
+      description: |
+        The community's sidebar page — a single, static content page
+        with no hierarchy or revision history.
+      properties:
+        subreddit:
+          type: string
+          description: The subreddit this sidebar belongs to.
+          example: programming
+        content:
+          type: string
+          description: Full Markdown content of the sidebar.
+          example: "# Welcome to r/programming\n\nA community for discussing programming topics..."
+        lastEditedBy:
+          type: string
+          description: Username of the last editor.
+          example: admin
+        lastEditedAt:
+          type: string
+          format: date-time
+          description: Timestamp of the last edit.
+
+    WikiPage:
+      type: object
+      description: |
+        A wiki page with a hierarchical slug. Slugs use `/` as a separator
+        to form a tree structure (e.g., `guides/beginner/setup`).
+      properties:
+        slug:
+          type: string
+          description: |
+            Hierarchical page path using `/` as separator.
+            Examples: `index`, `faq`, `guides/beginner/setup`.
+          example: guides/beginner/setup
+        title:
+          type: string
+          description: Human-readable page title.
+          example: "Beginner Setup Guide"
+        content:
+          type: string
+          description: Full Markdown content of the page.
+        lastEditedBy:
+          type: string
+          description: Username of the last editor.
+        lastEditedAt:
+          type: string
+          format: date-time
+          description: Timestamp of the last edit.
+        revisions:
+          type: integer
+          description: Total number of revisions.
+        parent:
+          type: string
+          nullable: true
+          description: |
+            The parent page's slug, derived from the slug hierarchy.
+            For example, if slug is `guides/beginner/setup`, parent is
+            `guides/beginner`. Top-level pages have `null` parent.
+          example: guides/beginner
+        children:
+          type: array
+          description: Slugs of direct child pages (one level deeper).
+          items:
+            type: string
+          example: ["guides/beginner/setup/windows", "guides/beginner/setup/linux"]
+
+    TrafficStats:
+      type: object
+      properties:
+        members:
+          type: integer
+        online:
+          type: integer
+        dailyPageViews:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              views:
+                type: integer
+        dailyPosts:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              count:
+                type: integer
+        dailyComments:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              count:
+                type: integer
+        memberGrowth:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              total:
+                type: integer
+        topPosts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Post"

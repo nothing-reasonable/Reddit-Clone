@@ -1,0 +1,162 @@
+{
+  "metadata": {
+    "title": "AutoModerator Complete Reference",
+    "version": "1.0",
+    "source": "Reddit archived source code and community examples",
+    "purpose": "Reference for AI models to understand and generate AutoModerator rules"
+  },
+  "overview": {
+    "description": "AutoModerator is a system built into Reddit that allows moderators to define rules (consisting of checks and actions) to be automatically applied to posts in their subreddit.",
+    "ruleFormat": "YAML documents separated by '---'",
+    "storage": "Subreddit wiki page at /r/SUBREDDIT/wiki/automoderator"
+  },
+  "checks": {
+    "type": {
+      "values": ["comment", "submission", "any", "link submission", "text submission"],
+      "default": "any",
+      "description": "Type of content the rule applies to"
+    },
+    "textFields": {
+      "title": {"appliesTo": ["submission"], "description": "Post title"},
+      "body": {"appliesTo": ["comment", "text submission"], "description": "Content body"},
+      "domain": {"appliesTo": ["link submission"], "description": "Domain of linked URL"},
+      "url": {"appliesTo": ["link submission"], "description": "Full URL"},
+      "id": {"appliesTo": ["all"], "description": "Reddit item ID"},
+      "flair_text": {"appliesTo": ["submission"], "description": "Flair text"},
+      "flair_css_class": {"appliesTo": ["submission"], "description": "Flair CSS class"},
+      "media_author": {"appliesTo": ["media links"], "description": "Author from embed"},
+      "media_author_url": {"appliesTo": ["media links"], "description": "Author URL from embed"},
+      "media_title": {"appliesTo": ["media links"], "description": "Title from embed"},
+      "media_description": {"appliesTo": ["media links"], "description": "Description from embed"}
+    },
+    "authorChecks": {
+      "name": {"type": "string or array", "description": "Username matching"},
+      "account_age": {"type": "time comparison", "operators": ["<", ">", "=="], "examples": ["< 7 days", "> 1 month"]},
+      "comment_karma": {"type": "integer comparison", "operators": ["<", ">", "=="]},
+      "post_karma": {"type": "integer comparison", "operators": ["<", ">", "=="]},
+      "combined_karma": {"type": "integer comparison", "operators": ["<", ">", "=="]},
+      "is_moderator": {"type": "boolean"},
+      "is_contributor": {"type": "boolean"},
+      "is_submitter": {"type": "boolean"},
+      "is_gold": {"type": "boolean"},
+      "flair_text": {"type": "string or array"},
+      "flair_css_class": {"type": "string or array"},
+      "satisfy_any_threshold": {"type": "boolean", "default": false, "description": "If true, only one threshold needs to be met"}
+    },
+    "otherChecks": {
+      "reports": {"type": "integer", "description": "Minimum number of reports to trigger"},
+      "body_longer_than": {"type": "integer", "description": "Body must exceed this length"},
+      "body_shorter_than": {"type": "integer", "description": "Body must be under this length"},
+      "ignore_blockquotes": {"type": "boolean", "description": "Exclude blockquotes from length check"},
+      "is_top_level": {"type": "boolean", "description": "Whether comment is top-level"},
+      "is_edited": {"type": "boolean", "description": "Whether content has been edited"}
+    }
+  },
+  "actions": {
+    "mainActions": {
+      "action": {
+        "values": ["approve", "remove", "spam", "filter", "report"],
+        "description": "Primary moderation action"
+      },
+      "action_reason": {"type": "string", "description": "Reason shown in mod log", "aliases": ["report_reason"]}
+    },
+    "flairActions": {
+      "set_flair": {"type": "string or [text, css_class]", "description": "Set post flair"},
+      "overwrite_flair": {"type": "boolean", "default": false, "description": "Overwrite existing flair"}
+    },
+    "communicationActions": {
+      "comment": {"type": "string", "description": "Post a comment on the item"},
+      "comment_stickied": {"type": "boolean", "default": false, "description": "Make the comment sticky"},
+      "modmail": {"type": "string", "description": "Send message to modmail"},
+      "modmail_subject": {"type": "string", "default": "AutoModerator notification"},
+      "message": {"type": "string", "description": "Send PM to author"},
+      "message_subject": {"type": "string", "default": "AutoModerator notification"}
+    },
+    "postSettings": {
+      "set_locked": {"type": "boolean", "description": "Lock the post"},
+      "set_sticky": {"type": "boolean or integer (1-2)", "description": "Sticky the post"},
+      "set_nsfw": {"type": "boolean", "description": "Mark as NSFW"},
+      "set_contest_mode": {"type": "boolean", "description": "Enable contest mode"},
+      "set_suggested_sort": {"values": ["new", "best", "top", "controversial", "confidence"]}
+    }
+  },
+  "matchModifiers": {
+    "full-exact": "Must match entire text exactly",
+    "full-text": "Match entire text (allows surrounding whitespace/punctuation)",
+    "includes": "Text must contain the pattern",
+    "includes-word": "Match as complete word",
+    "starts-with": "Text must start with the pattern",
+    "ends-with": "Text must end with the pattern",
+    "case-sensitive": "Case-sensitive matching",
+    "regex": "Treat value as regular expression"
+  },
+  "fieldDefaults": {
+    "id": "full-exact",
+    "url": "includes",
+    "media_author": "full-exact",
+    "media_author_url": "includes",
+    "flair_text": "full-exact",
+    "flair_css_class": "full-exact",
+    "domain": "includes (with subdomain handling)",
+    "_default": "includes-word"
+  },
+  "placeholders": {
+    "{{author}}": "Author's username",
+    "{{body}}": "Post/comment body",
+    "{{subreddit}}": "Subreddit name",
+    "{{title}}": "Post title",
+    "{{domain}}": "Link domain",
+    "{{url}}": "Link URL",
+    "{{permalink}}": "Full permalink to item",
+    "{{kind}}": "submission or comment",
+    "{{author_flair_text}}": "Author's flair text",
+    "{{author_flair_css_class}}": "Author's flair CSS class",
+    "{{media_author}}": "Media embed author",
+    "{{media_title}}": "Media embed title",
+    "{{media_description}}": "Media embed description",
+    "{{media_author_url}}": "Media embed author URL",
+    "{{match}}": "First regex capture group",
+    "{{match-N}}": "Nth regex capture group",
+    "{{match-field-N}}": "Nth capture group from specific field"
+  },
+  "ruleOptions": {
+    "priority": {"type": "integer", "default": 0, "description": "Higher priority rules processed first"},
+    "moderators_exempt": {"type": "boolean", "default": true, "description": "Whether moderators are exempt from this rule"}
+  },
+  "examples": [
+    {
+      "name": "Remove posts from new accounts",
+      "yaml": "type: submission\nauthor:\n    account_age: \"< 7 days\"\naction: remove\ncomment: \"Your post was removed because your account is less than 7 days old.\""
+    },
+    {
+      "name": "Auto-flair posts by keyword",
+      "yaml": "type: submission\ntitle: [question, help]\nset_flair: [\"Question\", \"question-flair\"]"
+    },
+    {
+      "name": "Auto-remove on multiple reports",
+      "yaml": "reports: 5\naction: remove\nmodmail: \"Item removed due to 5+ reports: {{permalink}}\""
+    },
+    {
+      "name": "Filter all-caps titles",
+      "yaml": "type: submission\ntitle (case-sensitive, regex, full-text): \"([A-Z0-9!,.]|\\\\W)+\"\naction: filter\naction_reason: \"All Caps Title\""
+    },
+    {
+      "name": "Require minimum karma",
+      "yaml": "type: comment\nauthor:\n    comment_karma: \"< 10\"\n    is_moderator: false\naction: remove\ncomment: \"Your account doesn't meet our karma requirements.\""
+    },
+    {
+      "name": "Keyword-based removal with message",
+      "yaml": "title: [banned_word1, banned_word2]\naction: remove\nmessage: |\n    Your submission was removed from /r/{{subreddit}}.\n    \n    The title contained a banned word."
+    }
+  ],
+  "bestPractices": [
+    "Organize rules logically and use comments",
+    "Test thoroughly with alt accounts",
+    "Use priority for exception rules",
+    "Be careful with regex - test patterns",
+    "Don't over-automate - some things need human judgment",
+    "Use standards for common patterns",
+    "Monitor modmail for AutoMod alerts",
+    "Document rules for future moderators"
+  ]
+}
