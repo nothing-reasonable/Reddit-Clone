@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow, format } from 'date-fns';
+import yaml from 'js-yaml';
 
 // ─── Rich Rule Model ───────────────────────────────────────────────────────────
 
@@ -34,6 +35,23 @@ type ActionType =
   | 'sticky'
   | 'set_flair';
 
+interface ParsedRule {
+  action?: string;
+  message?: string;
+  modmail?: string;
+  [key: string]: unknown;
+}
+
+interface TestFields {
+  title: string;
+  body: string;
+  karma: string;
+  age: string;
+  domain: string;
+  author: string;
+  flair: string;
+}
+
 interface RichAutoModRule {
   id: string;
   name: string;
@@ -46,6 +64,7 @@ interface RichAutoModRule {
   messageToUser?: string;
   modmailSubject?: string;
   modmailBody?: string;
+  yamlContent?: string;
   lastEditedBy: string;
   lastEditedAt: Date;
   createdAt: Date;
@@ -112,6 +131,15 @@ function applicableOperators(c: ConditionField): Operator[] {
 }
 
 function conditionSummary(r: RichAutoModRule) {
+  if (r.yamlContent) {
+    const preview = r.yamlContent
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith('#') && line !== '---')
+      .slice(0, 2)
+      .join(' | ');
+    return `YAML Rule: ${preview || 'Custom configuration'}`;
+  }
   return `If ${CONDITION_LABELS[r.conditionField]} ${OPERATOR_LABELS[r.operator]} "${r.value}"`;
 }
 
@@ -124,6 +152,7 @@ function createSeedRules(sub: string): RichAutoModRule[] {
         id: 'rich-1',
         name: 'Spam Keyword Filter',
         enabled: true,
+        yamlContent: 'type: submission\ntitle (includes): ["FREE BITCOIN", "CLICK HERE", "AMAZING OPPORTUNITY", "buy now"]\naction: remove\nmessage: "Your post in r/{{subreddit}} was automatically removed because it matched our spam filter. If you believe this was a mistake, please contact the moderators."',
         conditionField: 'post_title',
         operator: 'contains',
         value: 'FREE BITCOIN, CLICK HERE, AMAZING OPPORTUNITY, buy now',
@@ -137,6 +166,7 @@ function createSeedRules(sub: string): RichAutoModRule[] {
         id: 'rich-2',
         name: 'Toxic Language Detection',
         enabled: true,
+        yamlContent: 'type: any\nbody (includes): ["suck", "terrible", "horrible", "offensive", "idiot"]\naction: filter',
         conditionField: 'post_body',
         operator: 'contains',
         value: 'suck, terrible, horrible, offensive, idiot',
@@ -149,6 +179,7 @@ function createSeedRules(sub: string): RichAutoModRule[] {
         id: 'rich-3',
         name: 'New Account Review',
         enabled: true,
+        yamlContent: 'type: submission\nauthor:\n  account_age: "< 7 days"\naction: filter\nmessage: "Hi {{author}}, your post is being held for review because your account is less than 7 days old."',
         conditionField: 'user_age',
         operator: 'less_than',
         value: '7',
@@ -162,6 +193,7 @@ function createSeedRules(sub: string): RichAutoModRule[] {
         id: 'rich-4',
         name: 'Low Karma Gate',
         enabled: true,
+        yamlContent: 'type: submission\nauthor:\n  post_karma: "< 50"\naction: filter\nmodmail_subject: "Low-karma post held: {{title}}"\nmodmail: "User {{author}} submitted a post that was held for review.\\n\\nPlease review and approve or remove."',
         conditionField: 'account_karma',
         operator: 'less_than',
         value: '50',
@@ -176,6 +208,7 @@ function createSeedRules(sub: string): RichAutoModRule[] {
         id: 'rich-5',
         name: 'External Link Screener',
         enabled: false,
+        yamlContent: 'type: link submission\ndomain: ["bit.ly", "tinyurl.com", "t.co"]\naction: remove\nmessage: "Shortened URLs are not allowed in r/{{subreddit}}. Please resubmit with the full URL."',
         conditionField: 'domain',
         operator: 'contains',
         value: 'bit.ly, tinyurl.com, t.co',
@@ -189,6 +222,7 @@ function createSeedRules(sub: string): RichAutoModRule[] {
         id: 'rich-6',
         name: 'Auto-flair Help Requests',
         enabled: true,
+        yamlContent: 'type: submission\ntitle (includes): ["help", "how do I", "how to", "question", "beginner"]\nset_flair: ["Help"]\naction: filter',
         conditionField: 'post_title',
         operator: 'contains',
         value: 'help, how do I, how to, question, beginner',
@@ -206,6 +240,7 @@ function createSeedRules(sub: string): RichAutoModRule[] {
         id: 'rich-r1',
         name: 'Low Karma Filter',
         enabled: true,
+        yamlContent: 'type: submission\nauthor:\n  post_karma: "< 10"\naction: filter',
         conditionField: 'account_karma',
         operator: 'less_than',
         value: '10',
@@ -220,10 +255,10 @@ function createSeedRules(sub: string): RichAutoModRule[] {
 }
 
 const MOCK_EDIT_HISTORY = [
-  { id: 'eh-1', ruleName: 'Spam Keyword Filter', editor: 'admin', field: 'value', oldValue: 'FREE BITCOIN, CLICK HERE', newValue: 'FREE BITCOIN, CLICK HERE, AMAZING OPPORTUNITY, buy now', timestamp: new Date('2026-02-26T08:00:00') },
+  { id: 'eh-1', ruleName: 'Spam Keyword Filter', editor: 'admin', field: 'yaml', oldValue: 'title (includes): ["FREE BITCOIN", "CLICK HERE"]', newValue: 'title (includes): ["FREE BITCOIN", "CLICK HERE", "AMAZING OPPORTUNITY", "buy now"]', timestamp: new Date('2026-02-26T08:00:00') },
   { id: 'eh-2', ruleName: 'Auto-flair Help Requests', editor: 'moderator', field: 'new rule', oldValue: '', newValue: 'Created rule', timestamp: new Date('2026-02-23T11:30:00') },
-  { id: 'eh-3', ruleName: 'Low Karma Gate', editor: 'techmod', field: 'value', oldValue: '100', newValue: '50', timestamp: new Date('2026-02-22T16:00:00') },
-  { id: 'eh-4', ruleName: 'Toxic Language Detection', editor: 'moderator', field: 'value', oldValue: 'suck, terrible', newValue: 'suck, terrible, horrible, offensive, idiot', timestamp: new Date('2026-02-25T14:00:00') },
+  { id: 'eh-3', ruleName: 'Low Karma Gate', editor: 'techmod', field: 'yaml', oldValue: 'author:\n  post_karma: "< 100"', newValue: 'author:\n  post_karma: "< 50"', timestamp: new Date('2026-02-22T16:00:00') },
+  { id: 'eh-4', ruleName: 'Toxic Language Detection', editor: 'moderator', field: 'yaml', oldValue: 'body (includes): ["suck", "terrible"]', newValue: 'body (includes): ["suck", "terrible", "horrible", "offensive", "idiot"]', timestamp: new Date('2026-02-25T14:00:00') },
   { id: 'eh-5', ruleName: 'External Link Screener', editor: 'admin', field: 'enabled', oldValue: 'true', newValue: 'false', timestamp: new Date('2026-02-20T10:00:00') },
   { id: 'eh-6', ruleName: 'Spam Keyword Filter', editor: 'admin', field: 'new rule', oldValue: '', newValue: 'Created initial spam filter', timestamp: new Date('2026-01-15T10:00:00') },
 ];
@@ -250,6 +285,7 @@ function emptyRule(editor: string): RichAutoModRule {
     operator: 'contains',
     value: '',
     action: 'flag',
+    yamlContent: '---\n# Write your AutoModerator rule here in YAML\ntype: any\naction: flag\n# ...\n',
     lastEditedBy: editor,
     lastEditedAt: new Date(),
     createdAt: new Date(),
@@ -287,6 +323,9 @@ export default function AutoModSettings() {
   const [testFlair, setTestFlair] = useState('');
   const [testResults, setTestResults] = useState<{ rule: string; action: ActionType; message?: string }[]>([]);
   const [testRan, setTestRan] = useState(false);
+  
+  const [testMode, setTestMode] = useState<'saved' | 'custom'>('saved');
+  const [customTestYaml, setCustomTestYaml] = useState('type: any\ntitle (includes): ["test"]\naction: remove');
 
   // Logs filter
   const [logFilter, setLogFilter] = useState<'all' | 'removed' | 'flagged' | 'modmailed' | 'flair_set'>('all');
@@ -349,7 +388,13 @@ export default function AutoModSettings() {
   const saveRule = () => {
     if (!editingRule) return;
     if (!editingRule.name.trim()) { toast.error('Rule name is required'); return; }
-    if (!editingRule.value.trim()) { toast.error('Value is required'); return; }
+    if (!editingRule.yamlContent?.trim()) { toast.error('YAML content is required'); return; }
+    try {
+      yaml.load(editingRule.yamlContent);
+    } catch {
+      toast.error('YAML is invalid. Please fix syntax before saving.');
+      return;
+    }
 
     const updated = { ...editingRule, lastEditedBy: user!.username, lastEditedAt: new Date() };
 
@@ -369,46 +414,154 @@ export default function AutoModSettings() {
 
   // ─── Test Engine ───────────────────────────────────────────────────────────────
 
-  const runTests = () => {
-    setTestRan(true);
-    const enabled = rules.filter((r) => r.enabled);
-    const matches: { rule: string; action: ActionType; message?: string }[] = [];
+  const parseThreshold = (raw: unknown): number | null => {
+    if (typeof raw === 'number' && Number.isFinite(raw)) return raw;
+    if (typeof raw !== 'string') return null;
+    const match = raw.match(/-?\d+(?:\.\d+)?/);
+    return match ? Number(match[0]) : null;
+  };
 
-    for (const rule of enabled) {
-      let fieldValue = '';
-      switch (rule.conditionField) {
-        case 'post_title': fieldValue = testTitle; break;
-        case 'post_body': fieldValue = testBody; break;
-        case 'comment_body': fieldValue = testBody; break;
-        case 'user_age': fieldValue = testAge; break;
-        case 'account_karma': fieldValue = testKarma; break;
-        case 'post_flair': fieldValue = testFlair; break;
-        case 'domain': fieldValue = testDomain || testBody; break;
-        case 'author_name': fieldValue = testAuthor; break;
-      }
+  const includesAny = (source: string, patterns: unknown): boolean => {
+    if (!Array.isArray(patterns)) return false;
+    const haystack = source.toLowerCase();
+    return patterns.some((v) => typeof v === 'string' && haystack.includes(v.toLowerCase()));
+  };
 
+  const evaluateYamlRule = (yamlContent: string, fields: TestFields) => {
+    try {
+      const parsed = typeof yamlContent === 'string' ? yaml.load(yamlContent) : yamlContent;
+      if (!parsed || typeof parsed !== 'object') return null;
+
+      const p = parsed as ParsedRule;
       let triggered = false;
+      let action: ActionType = 'flag';
 
-      if (isNumericCondition(rule.conditionField)) {
-        const numVal = parseFloat(fieldValue) || 0;
-        const ruleVal = parseFloat(rule.value) || 0;
-        if (rule.operator === 'less_than') triggered = numVal < ruleVal;
-        else if (rule.operator === 'greater_than') triggered = numVal > ruleVal;
-        else if (rule.operator === 'equals') triggered = numVal === ruleVal;
-      } else {
-        const lower = fieldValue.toLowerCase();
-        if (rule.operator === 'contains') {
-          const keywords = rule.value.split(',').map((k) => k.trim().toLowerCase());
-          triggered = keywords.some((kw) => kw && lower.includes(kw));
-        } else if (rule.operator === 'matches') {
-          try { triggered = new RegExp(rule.value, 'i').test(fieldValue); } catch { triggered = false; }
-        } else if (rule.operator === 'equals') {
-          triggered = lower === rule.value.toLowerCase();
+      if (p.action === 'remove') action = 'remove';
+      if (p.action === 'approve') action = 'approve';
+      if (p.action === 'filter') action = 'flag';
+
+      if (Array.isArray(p.set_flair)) action = 'set_flair';
+      if (typeof p.modmail === 'string' || typeof p.modmail_subject === 'string') action = 'send_modmail';
+
+      if (includesAny(fields.title, p['title (includes)'])) {
+        triggered = true;
+      } else if (includesAny(fields.body, p['body (includes)'])) {
+        triggered = true;
+      } else if (typeof p['title (regex)'] === 'string') {
+        try {
+          triggered = new RegExp(p['title (regex)'], 'i').test(fields.title);
+        } catch {
+          triggered = false;
+        }
+      } else if (typeof p['body (regex)'] === 'string') {
+        try {
+          triggered = new RegExp(p['body (regex)'], 'i').test(fields.body);
+        } catch {
+          triggered = false;
+        }
+      } else if (Array.isArray(p.domain)) {
+        triggered = includesAny(fields.domain, p.domain);
+      } else if (typeof p.flair_text === 'string') {
+        triggered = fields.flair.toLowerCase() === p.flair_text.toLowerCase();
+      } else if (typeof p.author === 'object' && p.author) {
+        const authorBlock = p.author as Record<string, unknown>;
+        const ageThreshold = parseThreshold(authorBlock.account_age);
+        const karmaThreshold = parseThreshold(authorBlock.post_karma);
+        if (ageThreshold !== null) {
+          triggered = (parseFloat(fields.age) || 0) < ageThreshold;
+        } else if (karmaThreshold !== null) {
+          triggered = (parseFloat(fields.karma) || 0) < karmaThreshold;
         }
       }
 
       if (triggered) {
-        matches.push({ rule: rule.name, action: rule.action, message: rule.messageToUser });
+        const parsedMessage =
+          typeof p.message === 'string'
+            ? p.message
+            : typeof p.modmail === 'string'
+              ? p.modmail
+              : undefined;
+        return { action, message: parsedMessage };
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  };
+
+  const runTests = () => {
+    setTestRan(true);
+    const matches: { rule: string; action: ActionType; message?: string }[] = [];
+    
+    const fields = {
+      title: testTitle,
+      body: testBody,
+      karma: testKarma,
+      age: testAge,
+      domain: testDomain || testBody,
+      author: testAuthor,
+      flair: testFlair,
+    };
+
+    if (testMode === 'custom') {
+      try {
+        yaml.load(customTestYaml);
+      } catch {
+        toast.error('Custom YAML is invalid. Fix syntax before running test.');
+        setTestResults([]);
+        return;
+      }
+      const result = evaluateYamlRule(customTestYaml, fields);
+      if (result) {
+         matches.push({ rule: 'Custom Rule', action: result.action, message: result.message });
+      }
+    } else {
+      const enabled = rules.filter((r) => r.enabled);
+
+      for (const rule of enabled) {
+        if (rule.yamlContent) {
+           const result = evaluateYamlRule(rule.yamlContent, fields);
+           if (result) {
+              matches.push({ rule: rule.name, action: result.action, message: result.message || rule.messageToUser });
+           }
+        } else {
+           // Fallback to old logic
+           let fieldValue = '';
+           switch (rule.conditionField) {
+             case 'post_title': fieldValue = testTitle; break;
+             case 'post_body': fieldValue = testBody; break;
+             case 'comment_body': fieldValue = testBody; break;
+             case 'user_age': fieldValue = testAge; break;
+             case 'account_karma': fieldValue = testKarma; break;
+             case 'post_flair': fieldValue = testFlair; break;
+             case 'domain': fieldValue = testDomain || testBody; break;
+             case 'author_name': fieldValue = testAuthor; break;
+           }
+
+           let triggered = false;
+
+           if (isNumericCondition(rule.conditionField)) {
+             const numVal = parseFloat(fieldValue) || 0;
+             const ruleVal = parseFloat(rule.value) || 0;
+             if (rule.operator === 'less_than') triggered = numVal < ruleVal;
+             else if (rule.operator === 'greater_than') triggered = numVal > ruleVal;
+             else if (rule.operator === 'equals') triggered = numVal === ruleVal;
+           } else {
+             const lower = fieldValue.toLowerCase();
+             if (rule.operator === 'contains') {
+               const keywords = rule.value.split(',').map((k) => k.trim().toLowerCase());
+               triggered = keywords.some((kw) => kw && lower.includes(kw));
+             } else if (rule.operator === 'matches') {
+               try { triggered = new RegExp(rule.value, 'i').test(fieldValue); } catch { triggered = false; }
+             } else if (rule.operator === 'equals') {
+               triggered = lower === rule.value.toLowerCase();
+             }
+           }
+
+           if (triggered) {
+             matches.push({ rule: rule.name, action: rule.action, message: rule.messageToUser });
+           }
+        }
       }
     }
     setTestResults(matches);
@@ -419,7 +572,7 @@ export default function AutoModSettings() {
   const tabs = [
     { id: 'rules' as const, label: 'Rules', icon: Shield, count: rules.length },
     { id: 'history' as const, label: 'Rule History', icon: History },
-    { id: 'test' as const, label: 'Test Rule', icon: Terminal },
+    { id: 'test' as const, label: 'TestPlayground', icon: Terminal },
     { id: 'logs' as const, label: 'Logs', icon: FileText, count: MOCK_LOGS.length },
   ];
 
@@ -484,7 +637,19 @@ export default function AutoModSettings() {
             <Info className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
             <div className="text-sm text-blue-800">
               <p className="font-semibold mb-1">How AutoMod Works</p>
-              <p>AutoMod scans every post and comment against your rules. Matched content is automatically actioned. Rules run in order &mdash; a post can trigger multiple rules. Use the <strong>Test Rule</strong> tab to verify your rules before enabling them.</p>
+              <p>
+                AutoMod scans every post and comment against your YAML rules. Rules run in order, and a single post can trigger multiple actions.
+                Use the <strong>TestPlayground</strong> tab before enabling new rules, and follow Reddit syntax from{' '}
+                <a
+                  href="https://www.reddit.com/r/reddit.com/wiki/automoderator/full-documentation/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline font-semibold"
+                >
+                  full AutoModerator documentation
+                </a>
+                .
+              </p>
             </div>
           </div>
 
@@ -557,46 +722,12 @@ export default function AutoModSettings() {
                     {/* Expanded Details */}
                     {expanded && (
                       <div className="border-t border-gray-200 px-5 py-4 bg-gray-50/50">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                          <div>
-                            <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Condition</div>
-                            <div className="text-sm bg-white border border-gray-200 rounded px-3 py-2">
-                              <span className="font-medium text-gray-700">{CONDITION_LABELS[rule.conditionField]}</span>
-                              <span className="text-gray-400 mx-1.5">{OPERATOR_LABELS[rule.operator]}</span>
-                              <span className="font-mono text-blue-600 break-all">"{rule.value}"</span>
-                            </div>
-                          </div>
-                          <div>
-                            <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Action</div>
-                            <div className="text-sm bg-white border border-gray-200 rounded px-3 py-2 flex items-center gap-2">
-                              <ActionIcon className={`w-4 h-4 ${ACTION_COLORS[rule.action]}`} />
-                              <span className={`font-semibold ${ACTION_COLORS[rule.action]}`}>{ACTION_LABELS[rule.action]}</span>
-                              {rule.actionFlair && <span className="px-2 py-0.5 bg-gray-100 rounded text-xs">Flair: {rule.actionFlair}</span>}
-                            </div>
+                        <div className="mb-4">
+                          <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-2 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5" /> YAML Configuration</div>
+                          <div className="bg-gray-900 border border-gray-800 rounded-lg p-3 overflow-x-auto">
+                            <pre className="text-xs text-gray-300 font-mono whitespace-pre-wrap">{rule.yamlContent || `type: any\naction: ${rule.action}\n# Migrated legacy rule...`}</pre>
                           </div>
                         </div>
-
-                        {rule.messageToUser && (
-                          <div className="mb-4">
-                            <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">Message to User</div>
-                            <div className="text-sm bg-white border border-gray-200 rounded px-3 py-2 text-gray-700 whitespace-pre-wrap">
-                              {rule.messageToUser}
-                            </div>
-                          </div>
-                        )}
-
-                        {rule.action === 'send_modmail' && rule.modmailSubject && (
-                          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
-                            <div className="text-[11px] font-semibold text-blue-500 uppercase tracking-wide mb-2">Modmail Template</div>
-                            <div className="text-sm mb-1">
-                              <span className="text-gray-500">Subject:</span>{' '}
-                              <span className="font-medium">{rule.modmailSubject}</span>
-                            </div>
-                            <div className="text-sm text-gray-700 whitespace-pre-wrap bg-white rounded px-3 py-2 border border-blue-100">
-                              {rule.modmailBody}
-                            </div>
-                          </div>
-                        )}
 
                         <div className="flex items-center justify-between pt-3 border-t border-gray-200">
                           <div className="text-xs text-gray-400">
@@ -691,13 +822,33 @@ export default function AutoModSettings() {
         <div className="space-y-4">
           <div className="bg-white border border-gray-300 rounded-lg overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="font-bold text-lg flex items-center gap-2">
-                <Terminal className="w-5 h-5 text-green-600" />
-                Test Rule
-              </h2>
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="font-bold text-lg flex items-center gap-2">
+                  <Terminal className="w-5 h-5 text-green-600" />
+                  TestPlayground
+                </h2>
+                <div className="flex bg-gray-100 p-1 rounded-lg">
+                  <button onClick={() => setTestMode('saved')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${testMode === 'saved' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Saved Rules</button>
+                  <button onClick={() => setTestMode('custom')} className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${testMode === 'custom' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}>Write Custom Rule</button>
+                </div>
+              </div>
               <p className="text-sm text-gray-500">Paste sample content to see which rules would trigger</p>
             </div>
             <div className="p-6">
+              
+              {testMode === 'custom' && (
+                 <div className="mb-6 bg-blue-50 border border-blue-100 rounded-lg p-4">
+                  <label className="block text-xs font-bold text-blue-700 uppercase tracking-wide mb-2 flex items-center gap-1.5"><FileText className="w-3.5 h-3.5"/> Custom Rule YAML</label>
+                  <textarea
+                    value={customTestYaml}
+                    onChange={(e) => { setCustomTestYaml(e.target.value); setTestRan(false); }}
+                    placeholder={`type: any\ntitle (includes): ["test"]\naction: remove`}
+                    rows={6}
+                    className="w-full px-3 py-2 border border-blue-200 font-mono rounded-lg focus:outline-none focus:border-blue-400 text-sm bg-white"
+                  />
+                 </div>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Post Title</label>
@@ -782,7 +933,9 @@ export default function AutoModSettings() {
                   Run Test
                 </button>
                 <span className="text-xs text-gray-400">
-                  Testing against {rules.filter((r) => r.enabled).length} enabled rule{rules.filter((r) => r.enabled).length !== 1 ? 's' : ''}
+                  {testMode === 'saved'
+                    ? `Testing against ${rules.filter((r) => r.enabled).length} enabled rule${rules.filter((r) => r.enabled).length !== 1 ? 's' : ''}`
+                    : 'Testing against your unsaved custom YAML rule'}
                 </span>
               </div>
             </div>
@@ -977,178 +1130,45 @@ export default function AutoModSettings() {
                 />
               </div>
 
-              {/* Condition Section */}
               <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Condition</h3>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Check this field</label>
-                    <select
-                      value={editingRule.conditionField}
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Rule YAML</h3>
+                  <label className="cursor-pointer text-blue-500 hover:text-blue-600 text-xs font-semibold flex items-center gap-1.5 bg-blue-50 px-3 py-1.5 rounded-md hover:bg-blue-100 transition-colors">
+                    <FileText className="w-3.5 h-3.5" /> Upload .yaml file
+                    <input
+                      type="file"
+                      accept=".yaml,.yml"
+                      className="hidden"
                       onChange={(e) => {
-                        const cf = e.target.value as ConditionField;
-                        const ops = applicableOperators(cf);
-                        setEditingRule({
-                          ...editingRule,
-                          conditionField: cf,
-                          operator: ops.includes(editingRule.operator) ? editingRule.operator : ops[0],
-                        });
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          const reader = new FileReader();
+                          reader.onload = (event) => {
+                            setEditingRule({ ...editingRule, yamlContent: event.target?.result as string });
+                            toast.success('YAML loaded successfully');
+                          };
+                          reader.readAsText(file);
+                        }
                       }}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm bg-white"
-                    >
-                      {Object.entries(CONDITION_LABELS).map(([k, v]) => (
-                        <option key={k} value={k}>{v}</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Operator</label>
-                    <select
-                      value={editingRule.operator}
-                      onChange={(e) => setEditingRule({ ...editingRule, operator: e.target.value as Operator })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm bg-white"
-                    >
-                      {applicableOperators(editingRule.conditionField).map((op) => (
-                        <option key={op} value={op}>{OPERATOR_LABELS[op]}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">
-                    Value <span className="text-red-400">*</span>
+                    />
                   </label>
-                  {isNumericCondition(editingRule.conditionField) ? (
-                    <input
-                      type="number"
-                      value={editingRule.value}
-                      onChange={(e) => setEditingRule({ ...editingRule, value: e.target.value })}
-                      placeholder={editingRule.conditionField === 'user_age' ? 'e.g. 7 (days)' : 'e.g. 50'}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={editingRule.value}
-                      onChange={(e) => setEditingRule({ ...editingRule, value: e.target.value })}
-                      placeholder={
-                        editingRule.operator === 'contains'
-                          ? 'Comma-separated keywords, e.g. spam, scam, click here'
-                          : editingRule.operator === 'matches'
-                          ? 'Regex pattern, e.g. \\bfree\\s+money\\b'
-                          : 'Exact value'
-                      }
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
-                    />
-                  )}
-                  {editingRule.operator === 'contains' && !isNumericCondition(editingRule.conditionField) && (
-                    <p className="text-[11px] text-gray-400 mt-1">Separate multiple keywords with commas. Case-insensitive.</p>
-                  )}
                 </div>
-              </div>
-
-              {/* Action Section */}
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-4">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide">Action</h3>
-
-                <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">When triggered, do this</label>
-                  <select
-                    value={editingRule.action}
-                    onChange={(e) => setEditingRule({ ...editingRule, action: e.target.value as ActionType })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm bg-white"
-                  >
-                    {Object.entries(ACTION_LABELS).map(([k, v]) => (
-                      <option key={k} value={k}>{v}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Set Flair specific */}
-                {editingRule.action === 'set_flair' && (
-                  <div>
-                    <label className="block text-xs font-medium text-gray-500 mb-1">Flair to set</label>
-                    <input
-                      type="text"
-                      value={editingRule.actionFlair || ''}
-                      onChange={(e) => setEditingRule({ ...editingRule, actionFlair: e.target.value })}
-                      placeholder="e.g. Help"
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Message to User (optional) */}
-              <div>
-                <label className="block text-sm font-semibold mb-1.5">
-                  Message to User <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
                 <textarea
-                  value={editingRule.messageToUser || ''}
-                  onChange={(e) => setEditingRule({ ...editingRule, messageToUser: e.target.value })}
-                  placeholder="Automated message sent to the user when this rule triggers. You can use variables like {{user.name}}, {{post.title}}, {{subreddit}}."
-                  rows={3}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm"
+                  value={editingRule.yamlContent || ''}
+                  onChange={(e) => setEditingRule({ ...editingRule, yamlContent: e.target.value })}
+                  placeholder={`---\n# Rule configuration...\ntype: any\naction: remove\n# ...`}
+                  rows={10}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:border-blue-500 text-sm font-mono bg-white shadow-inner"
+                  spellCheck="false"
                 />
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
-                  {['{{user.name}}', '{{post.title}}', '{{subreddit}}', '{{user.karma}}'].map((v) => (
-                    <button
-                      key={v}
-                      type="button"
-                      onClick={() => setEditingRule({ ...editingRule, messageToUser: (editingRule.messageToUser || '') + ' ' + v })}
-                      className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[11px] font-mono hover:bg-blue-100"
-                    >
-                      {v}
-                    </button>
-                  ))}
+                <div className="flex bg-blue-50 p-3 rounded-lg text-xs text-blue-800">
+                  <Info className="w-4 h-4 mr-2 shrink-0 mt-0.5" />
+                  <p>
+                    Write your rule in YAML format. Use Reddit AutoModerator syntax, and upload an existing .yaml/.yml file to prefill this editor.
+                  </p>
                 </div>
               </div>
 
-              {/* Modmail Template (conditional) */}
-              {editingRule.action === 'send_modmail' && (
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-3">
-                  <h3 className="text-xs font-bold text-blue-600 uppercase tracking-wide flex items-center gap-1.5">
-                    <Mail className="w-3.5 h-3.5" />
-                    Modmail Template
-                  </h3>
-                  <div>
-                    <label className="block text-xs font-medium text-blue-700 mb-1">Subject</label>
-                    <input
-                      type="text"
-                      value={editingRule.modmailSubject || ''}
-                      onChange={(e) => setEditingRule({ ...editingRule, modmailSubject: e.target.value })}
-                      placeholder="e.g. AutoMod: Low karma post held - {{post.title}}"
-                      className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 text-sm bg-white"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-blue-700 mb-1">Body</label>
-                    <textarea
-                      value={editingRule.modmailBody || ''}
-                      onChange={(e) => setEditingRule({ ...editingRule, modmailBody: e.target.value })}
-                      placeholder="Plain text message body for the modmail notification..."
-                      rows={4}
-                      className="w-full px-3 py-2 border border-blue-200 rounded-lg focus:outline-none focus:border-blue-400 text-sm bg-white"
-                    />
-                    <div className="flex flex-wrap gap-1.5 mt-1.5">
-                      {['{{user.name}}', '{{post.title}}', '{{subreddit}}', '{{user.karma}}', '{{post.url}}'].map((v) => (
-                        <button
-                          key={v}
-                          type="button"
-                          onClick={() => setEditingRule({ ...editingRule, modmailBody: (editingRule.modmailBody || '') + ' ' + v })}
-                          className="px-2 py-0.5 bg-blue-100 text-blue-600 rounded text-[11px] font-mono hover:bg-blue-200"
-                        >
-                          {v}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
 
             {/* Modal Footer */}
