@@ -3,8 +3,10 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { Search, Bell, Plus, Menu, LogOut, User, Shield, X, TrendingUp, Home as HomeIcon, ChevronDown, Mail, Users } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
-import { subreddits, notifications as mockNotifications, userMessages, formatNumber } from '../data/mockData';
+import { formatNumber } from '../utils/format';
 import { formatDistanceToNow } from 'date-fns';
+import { getAllSubreddits } from '../services/subredditApi';
+import type { Notification, Subreddit } from '../types/domain';
 
 export default function Layout() {
   const { user, logout, isAuthenticated } = useAuth();
@@ -15,13 +17,31 @@ export default function Layout() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchSuggestions, setShowSearchSuggestions] = useState(false);
-  const [notifications, setNotifications] = useState(mockNotifications);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [subreddits, setSubreddits] = useState<Subreddit[]>([]);
   const searchRef = useRef<HTMLDivElement>(null);
   const notifRef = useRef<HTMLDivElement>(null);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
   const unreadCount = notifications.filter((n) => !n.read).length;
-  const unreadDMs = userMessages.filter((m) => m.to === (user?.username || '') && !m.read).length;
+  const unreadDMs = 0;
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadSubreddits() {
+      try {
+        const data = await getAllSubreddits();
+        if (!cancelled) setSubreddits(data);
+      } catch {
+        if (!cancelled) setSubreddits([]);
+      }
+    }
+
+    void loadSubreddits();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Close dropdowns on outside click
   useEffect(() => {
@@ -237,7 +257,7 @@ export default function Layout() {
                     </div>
                     <div className="hidden sm:block text-left">
                       <div className="text-xs font-medium leading-tight">{user?.username}</div>
-                      <div className="text-[10px] text-gray-500 leading-tight">{formatNumber(user?.karma || 0)} karma</div>
+                      <div className="text-[10px] text-gray-500 leading-tight">Redditor</div>
                     </div>
                     <ChevronDown className="w-3.5 h-3.5 text-gray-400 hidden sm:block" />
                   </button>
@@ -252,7 +272,7 @@ export default function Layout() {
                           </div>
                           <div>
                             <div className="font-semibold text-sm">u/{user?.username}</div>
-                            <div className="text-xs text-gray-500">{formatNumber(user?.karma || 0)} karma</div>
+                            <div className="text-xs text-gray-500">Account active</div>
                           </div>
                         </div>
                       </div>

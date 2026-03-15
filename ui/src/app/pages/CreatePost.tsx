@@ -1,18 +1,19 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { subreddits } from '../data/mockData';
 import { toast } from 'sonner';
 import { FileText, Link as LinkIcon, Image, List, ChevronDown, Tag } from 'lucide-react';
+import { getAllSubreddits } from '../services/subredditApi';
+import { createPost } from '../services/contentApi';
+import type { Subreddit } from '../types/domain';
 
 export default function CreatePost() {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, token } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const initialSub = searchParams.get('subreddit') || 'programming';
-  const [selectedSubreddit, setSelectedSubreddit] = useState(
-    subreddits.some((s) => s.name === initialSub) ? initialSub : 'programming'
-  );
+  const [subreddits, setSubreddits] = useState<Subreddit[]>([]);
+  const [selectedSubreddit, setSelectedSubreddit] = useState(initialSub);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [flair, setFlair] = useState('');
@@ -20,6 +21,32 @@ export default function CreatePost() {
   const [linkUrl, setLinkUrl] = useState('');
   const [showSubSelect, setShowSubSelect] = useState(false);
   const [showFlairDropdown, setShowFlairDropdown] = useState(false);
+  const [loadingCommunities, setLoadingCommunities] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCommunities() {
+      setLoadingCommunities(true);
+      try {
+        const data = await getAllSubreddits();
+        if (cancelled) return;
+        setSubreddits(data);
+        if (data.length > 0) {
+          const exists = data.some((s) => s.name === initialSub);
+          setSelectedSubreddit(exists ? initialSub : data[0].name);
+        }
+      } catch {
+        if (!cancelled) setSubreddits([]);
+      } finally {
+        if (!cancelled) setLoadingCommunities(false);
+      }
+    }
+
+    void loadCommunities();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialSub]);
 
   const selectedSub = subreddits.find((s) => s.name === selectedSubreddit);
 
@@ -37,7 +64,7 @@ export default function CreatePost() {
     );
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title.trim()) {
       toast.error('Title is required');
@@ -47,8 +74,24 @@ export default function CreatePost() {
       toast.error('URL is required for link posts');
       return;
     }
-    toast.success('Post created successfully!');
-    navigate(`/r/${selectedSubreddit}`);
+    if (!token) {
+      toast.error('Please log in again to post');
+      return;
+    }
+
+    try {
+      await createPost(token, selectedSubreddit, {
+        title: title.trim(),
+        content: content.trim(),
+        type: postType,
+        url: postType === 'link' ? linkUrl.trim() : undefined,
+        flair: flair || undefined,
+      });
+      toast.success('Post created successfully!');
+      navigate(`/r/${selectedSubreddit}`);
+    } catch {
+      toast.error('Failed to create post');
+    }
   };
 
   const tabs = [
@@ -76,6 +119,7 @@ export default function CreatePost() {
         </button>
         {showSubSelect && (
           <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-60 overflow-y-auto">
+            {loadingCommunities && <div className="px-4 py-2 text-sm text-gray-500">Loading communities...</div>}
             {subreddits.map((sub) => (
               <button
                 key={sub.name}
@@ -199,7 +243,7 @@ export default function CreatePost() {
               <button type="button" className="px-4 py-1.5 bg-blue-500 text-white rounded-full text-sm font-semibold hover:bg-blue-600">
                 Upload
               </button>
-              <p className="text-xs text-gray-400 mt-2">(Demo - uploads not functional)</p>
+              <p className="text-xs text-gray-400 mt-2">Image upload is not available yet.</p>
             </div>
           )}
 

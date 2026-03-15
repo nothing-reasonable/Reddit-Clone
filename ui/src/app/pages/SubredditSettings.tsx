@@ -1,8 +1,9 @@
+import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
-import { subreddits } from '../data/mockData';
-import { useState } from 'react';
+import { getSubredditByName } from '../services/subredditApi';
+import type { Subreddit } from '../types/domain';
 import { Users, ArrowLeft, Plus, Trash2, Save, GripVertical, Tag, BookOpen, Edit3, Pencil, Check, X, ArrowUp, ArrowDown } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -17,16 +18,27 @@ export default function SubredditSettings() {
   const { user } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
+  const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const subredditData = subreddits.find((s) => s.name === subreddit);
+  useEffect(() => {
+    if (!subreddit) return;
+
+    setIsLoading(true);
+    getSubredditByName(subreddit)
+      .then((record) => setSubredditData(record))
+      .catch(() => setSubredditData(null))
+      .finally(() => setIsLoading(false));
+  }, [subreddit]);
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
     (user?.isModerator && subredditData?.moderators.includes(user.username));
 
-  const [description, setDescription] = useState(subredditData?.description || '');
-  const [longDescription, setLongDescription] = useState(subredditData?.longDescription || '');
-  const [rules, setRules] = useState<EditableRule[]>(subredditData?.rules || []);
-  const [flairs, setFlairs] = useState(subredditData?.flairs || []);
+  const [description, setDescription] = useState('');
+  const [longDescription, setLongDescription] = useState('');
+  const [rules, setRules] = useState<EditableRule[]>([]);
+  const [flairs, setFlairs] = useState<string[]>([]);
   const [newRuleTitle, setNewRuleTitle] = useState('');
   const [newRuleDesc, setNewRuleDesc] = useState('');
   const [newFlair, setNewFlair] = useState('');
@@ -34,6 +46,22 @@ export default function SubredditSettings() {
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [editingDesc, setEditingDesc] = useState('');
+
+  useEffect(() => {
+    if (!subredditData) return;
+    setDescription(subredditData.description || '');
+    setLongDescription(subredditData.longDescription || '');
+    setRules(subredditData.rules || []);
+    setFlairs(subredditData.flairs || []);
+  }, [subredditData]);
+
+  if (isLoading) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="bg-white border border-gray-300 rounded p-8 text-center text-gray-600">Loading community settings...</div>
+      </div>
+    );
+  }
 
   if (!isModerator) {
     return (

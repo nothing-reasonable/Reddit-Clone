@@ -1,8 +1,9 @@
+import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
-import { modMails, subreddits } from '../data/mockData';
-import { useState } from 'react';
+import { getSubredditByName } from '../services/subredditApi';
+import type { ModMail, Subreddit } from '../types/domain';
 import { Mail, ArrowLeft, Send, Circle, CheckCircle2, Plus, X, Filter } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -14,7 +15,9 @@ export default function ModMailPage() {
   const { user } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
-  const [mails, setMails] = useState(modMails.filter((m) => m.subreddit === subreddit));
+  const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
+  const [mails, setMails] = useState<ModMail[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedMail, setSelectedMail] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
   const [activeFilter, setActiveFilter] = useState<MailFilter>('all');
@@ -23,10 +26,27 @@ export default function ModMailPage() {
   const [composeSubject, setComposeSubject] = useState('');
   const [composeContent, setComposeContent] = useState('');
 
-  const subredditData = subreddits.find((s) => s.name === subreddit);
+  useEffect(() => {
+    if (!subreddit) return;
+
+    setIsLoading(true);
+    getSubredditByName(subreddit)
+      .then((record) => setSubredditData(record))
+      .catch(() => setSubredditData(null))
+      .finally(() => setIsLoading(false));
+  }, [subreddit]);
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
     (user?.isModerator && subredditData?.moderators.includes(user.username));
+
+  if (isLoading) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="bg-white border border-gray-300 rounded p-8 text-center text-gray-600">Loading mod mail...</div>
+      </div>
+    );
+  }
 
   if (!isModerator) {
     return (

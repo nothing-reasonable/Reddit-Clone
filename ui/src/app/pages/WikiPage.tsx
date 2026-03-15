@@ -1,6 +1,8 @@
 import { formatDistanceToNow } from 'date-fns';
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router';
-import { subredditWikis, subreddits } from '../data/mockData';
+import { getSubredditByName } from '../services/subredditApi';
+import type { Subreddit, WikiPage as SubredditWikiPage } from '../types/domain';
 import { BookOpen, Clock, Pencil, ChevronRight, FileText, ArrowLeft } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
@@ -9,14 +11,33 @@ export default function WikiPage() {
   const { subreddit, page } = useParams<{ subreddit: string; page?: string }>();
   const { user } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
+  const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const subredditData = subreddits.find((s) => s.name === subreddit);
-  const wikiPages = subredditWikis[subreddit || ''] || [];
+  useEffect(() => {
+    if (!subreddit) return;
+
+    setIsLoading(true);
+    getSubredditByName(subreddit)
+      .then((record) => setSubredditData(record))
+      .catch(() => setSubredditData(null))
+      .finally(() => setIsLoading(false));
+  }, [subreddit]);
+
+  const wikiPages: SubredditWikiPage[] = [];
   const currentSlug = page || 'index';
   const currentPage = wikiPages.find((p) => p.slug === currentSlug);
   const isModerator =
     isSubredditModerator(subreddit || '') ||
     (user?.isModerator && subredditData?.moderators.includes(user.username));
+
+  if (isLoading) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="bg-white border border-gray-300 rounded p-8 text-center text-gray-600">Loading wiki...</div>
+      </div>
+    );
+  }
 
   if (!subredditData) {
     return (

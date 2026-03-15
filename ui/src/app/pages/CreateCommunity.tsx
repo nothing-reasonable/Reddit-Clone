@@ -1,26 +1,28 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { subreddits } from '../data/mockData';
+import { useSubreddit } from '../contexts/SubredditContext';
+import { createSubreddit } from '../services/subredditApi';
 import { Users, Eye, Lock, Shield, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 
 type CommunityType = 'public' | 'restricted' | 'private';
 
 export default function CreateCommunity() {
-  const { user, isAuthenticated } = useAuth();
+  const { token, isAuthenticated } = useAuth();
+  const { joinSubreddit } = useSubreddit();
   const navigate = useNavigate();
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [communityType, setCommunityType] = useState<CommunityType>('public');
   const [isNSFW, setIsNSFW] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const nameError = (() => {
     if (!name) return '';
     if (name.length < 3) return 'Community name must be at least 3 characters';
     if (name.length > 21) return 'Community name must be 21 characters or less';
     if (!/^[a-zA-Z0-9_]+$/.test(name)) return 'Only letters, numbers, and underscores allowed';
-    if (subreddits.some((s) => s.name.toLowerCase() === name.toLowerCase())) return 'This community already exists';
     return '';
   })();
 
@@ -41,16 +43,39 @@ export default function CreateCommunity() {
     );
   }
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!name || nameError) {
       toast.error(nameError || 'Please enter a community name');
       return;
     }
-    // Mock creation - in real app this would persist
-    toast.success(`r/${name} created!`, {
-      description: 'Your new community is ready.',
-    });
-    navigate(`/r/${name}`);
+
+    if (!token) {
+      toast.error('Please log in again to create a community');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const created = await createSubreddit(token, {
+        name,
+        description,
+        communityType,
+        isNsfw: isNSFW,
+      });
+
+      // Keep the local moderator checks in sync for pages that still read context.
+      joinSubreddit(created.name, 'moderator');
+
+      toast.success(`r/${created.name} created!`, {
+        description: 'Your new community is ready.',
+      });
+      navigate(`/r/${created.name}`);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create community';
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const communityTypes: { id: CommunityType; label: string; description: string; icon: typeof Eye }[] = [
@@ -194,10 +219,10 @@ export default function CreateCommunity() {
           </button>
           <button
             onClick={handleSubmit}
-            disabled={!name || !!nameError}
+            disabled={!name || !!nameError || isSubmitting}
             className="px-5 py-2 bg-blue-500 text-white rounded-full text-sm font-semibold hover:bg-blue-600 disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            Create Community
+            {isSubmitting ? 'Creating...' : 'Create Community'}
           </button>
         </div>
       </div>

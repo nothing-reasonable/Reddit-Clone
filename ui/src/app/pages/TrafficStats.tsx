@@ -1,7 +1,10 @@
+import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
-import { subreddits, posts } from '../data/mockData';
+import { getSubredditPosts } from '../services/contentApi';
+import { getSubredditByName } from '../services/subredditApi';
+import type { Post, Subreddit } from '../types/domain';
 import { BarChart3, ArrowLeft, TrendingUp, Users, Eye, MessageSquare } from 'lucide-react';
 
 export default function TrafficStats() {
@@ -9,8 +12,44 @@ export default function TrafficStats() {
   const { user } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
+  const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const subredditData = subreddits.find((s) => s.name === subreddit);
+  useEffect(() => {
+    if (!subreddit) return;
+
+    let isMounted = true;
+    setIsLoading(true);
+
+    Promise.all([getSubredditByName(subreddit), getSubredditPosts(subreddit)])
+      .then(([subredditRecord, subredditPosts]) => {
+        if (!isMounted) return;
+        setSubredditData(subredditRecord);
+        setPosts(subredditPosts);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setSubredditData(null);
+        setPosts([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [subreddit]);
+
+  if (isLoading) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="bg-white border border-gray-300 rounded p-8 text-center text-gray-600">Loading traffic stats...</div>
+      </div>
+    );
+  }
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
     (user?.isModerator && subredditData?.moderators.includes(user.username));
@@ -31,19 +70,6 @@ export default function TrafficStats() {
   const subPosts = posts.filter((p) => p.subreddit === subreddit);
   const totalUpvotes = subPosts.reduce((acc, p) => acc + p.upvotes, 0);
   const totalComments = subPosts.reduce((acc, p) => acc + p.commentCount, 0);
-
-  // Mock traffic data
-  const dailyViews = [
-    { day: 'Mon', views: 12400, posts: 45, comments: 234 },
-    { day: 'Tue', views: 15600, posts: 52, comments: 287 },
-    { day: 'Wed', views: 18200, posts: 61, comments: 345 },
-    { day: 'Thu', views: 14800, posts: 48, comments: 256 },
-    { day: 'Fri', views: 21300, posts: 73, comments: 412 },
-    { day: 'Sat', views: 28900, posts: 89, comments: 567 },
-    { day: 'Sun', views: 25400, posts: 76, comments: 489 },
-  ];
-
-  const maxViews = Math.max(...dailyViews.map((d) => d.views));
 
   const topPosts = [...subPosts].sort((a, b) => b.upvotes - a.upvotes).slice(0, 5);
 
@@ -71,7 +97,7 @@ export default function TrafficStats() {
             <Users className="w-4 h-4" />
             <span className="text-sm">Members</span>
           </div>
-          <div className="text-2xl font-bold">{(subredditData!.members / 1000000).toFixed(1)}M</div>
+          <div className="text-2xl font-bold">{((subredditData?.members ?? 0) / 1000000).toFixed(1)}M</div>
           <div className="text-sm text-green-600 flex items-center gap-1 mt-1">
             <TrendingUp className="w-3 h-3" />
             +2.4% this week
@@ -82,7 +108,7 @@ export default function TrafficStats() {
             <Eye className="w-4 h-4" />
             <span className="text-sm">Online Now</span>
           </div>
-          <div className="text-2xl font-bold">{subredditData!.online.toLocaleString()}</div>
+          <div className="text-2xl font-bold">{(subredditData?.online ?? 0).toLocaleString()}</div>
           <div className="text-sm text-green-600 flex items-center gap-1 mt-1">
             <TrendingUp className="w-3 h-3" />
             +12% vs avg
@@ -112,41 +138,31 @@ export default function TrafficStats() {
         </div>
       </div>
 
-      {/* Daily Views Bar Chart */}
-      <div className="bg-white border border-gray-300 rounded mb-4 p-6">
-        <h2 className="font-bold text-lg mb-4">Page Views (This Week)</h2>
-        <div className="flex items-end gap-3 h-48">
-          {dailyViews.map((day) => (
-            <div key={day.day} className="flex-1 flex flex-col items-center gap-2">
-              <div className="text-xs font-semibold text-gray-600">
-                {(day.views / 1000).toFixed(1)}k
-              </div>
-              <div
-                className="w-full bg-blue-500 rounded-t hover:bg-blue-600 transition-colors"
-                style={{ height: `${(day.views / maxViews) * 100}%`, minHeight: '8px' }}
-                title={`${day.views.toLocaleString()} views`}
-              />
-              <div className="text-xs font-medium text-gray-600">{day.day}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Daily Activity */}
+        {/* Activity Summary */}
         <div className="bg-white border border-gray-300 rounded p-6">
-          <h2 className="font-bold text-lg mb-4">Daily Activity</h2>
+          <h2 className="font-bold text-lg mb-4">Activity Summary</h2>
           <div className="space-y-3">
-            {dailyViews.map((day) => (
-              <div key={day.day} className="flex items-center justify-between text-sm">
-                <span className="font-medium w-10">{day.day}</span>
-                <div className="flex items-center gap-4 text-gray-600">
-                  <span>{day.posts} posts</span>
-                  <span>{day.comments} comments</span>
-                  <span className="font-semibold text-gray-900">{(day.views / 1000).toFixed(1)}k views</span>
-                </div>
-              </div>
-            ))}
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">Posts</span>
+              <span className="text-gray-700 font-semibold">{subPosts.length}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">Total Upvotes</span>
+              <span className="text-gray-700 font-semibold">{totalUpvotes.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">Total Comments</span>
+              <span className="text-gray-700 font-semibold">{totalComments.toLocaleString()}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">Flagged Posts</span>
+              <span className="text-gray-700 font-semibold">{subPosts.filter((p) => p.flagged).length}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="font-medium">Removed Posts</span>
+              <span className="text-gray-700 font-semibold">{subPosts.filter((p) => p.removed).length}</span>
+            </div>
           </div>
         </div>
 
@@ -154,45 +170,35 @@ export default function TrafficStats() {
         <div className="bg-white border border-gray-300 rounded p-6">
           <h2 className="font-bold text-lg mb-4">Top Posts</h2>
           <div className="space-y-3">
-            {topPosts.map((post, index) => (
-              <Link
-                key={post.id}
-                to={`/r/${post.subreddit}/comments/${post.id}`}
-                className="flex items-start gap-3 p-2 hover:bg-gray-50 rounded"
-              >
-                <span className="font-bold text-gray-400 text-lg w-6 text-center">{index + 1}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="text-sm font-medium truncate">{post.title}</div>
-                  <div className="text-xs text-gray-500">
-                    {post.upvotes.toLocaleString()} upvotes &#8226; {post.commentCount} comments
+            {topPosts.length === 0 ? (
+              <div className="text-sm text-gray-500">No post data available yet.</div>
+            ) : (
+              topPosts.map((post, index) => (
+                <Link
+                  key={post.id}
+                  to={`/r/${post.subreddit}/comments/${post.id}`}
+                  className="flex items-start gap-3 p-2 hover:bg-gray-50 rounded"
+                >
+                  <span className="font-bold text-gray-400 text-lg w-6 text-center">{index + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{post.title}</div>
+                    <div className="text-xs text-gray-500">
+                      {post.upvotes.toLocaleString()} upvotes &#8226; {post.commentCount} comments
+                    </div>
                   </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              ))
+            )}
           </div>
         </div>
       </div>
 
-      {/* Growth Chart Mock */}
       <div className="mt-4 bg-white border border-gray-300 rounded p-6">
-        <h2 className="font-bold text-lg mb-4">Member Growth (Last 30 Days)</h2>
-        <div className="flex items-end gap-1 h-32">
-          {Array.from({ length: 30 }, (_, i) => {
-            const base = 70 + Math.sin(i / 5) * 15 + Math.random() * 20;
-            return (
-              <div key={i} className="flex-1 flex flex-col items-center">
-                <div
-                  className="w-full bg-green-400 rounded-t hover:bg-green-500 transition-colors"
-                  style={{ height: `${base}%`, minHeight: '4px' }}
-                />
-              </div>
-            );
-          })}
-        </div>
-        <div className="flex justify-between text-xs text-gray-500 mt-2">
-          <span>30 days ago</span>
-          <span>Today</span>
-        </div>
+        <h2 className="font-bold text-lg mb-2">Traffic Timeline</h2>
+        <p className="text-sm text-gray-600">
+          Daily and monthly traffic analytics are not available from backend yet. This page currently shows
+          aggregate metrics derived from real post data.
+        </p>
       </div>
     </div>
   );

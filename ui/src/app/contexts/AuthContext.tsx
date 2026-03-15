@@ -1,18 +1,21 @@
-import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
+
+const USER_SERVICE_URL = 'http://localhost:8081';
 
 interface User {
-  id: string;
+  id: number;
   username: string;
   email: string;
-  karma: number;
+  isActive: boolean;
   isModerator: boolean;
-  createdAt: Date;
+  createdAt: string;
 }
 
 interface AuthContextType {
   user: User | null;
-  login: (username: string, password: string) => boolean;
-  signup: (username: string, email: string, password: string) => boolean;
+  token: string | null;
+  login: (username: string, password: string) => Promise<boolean>;
+  signup: (username: string, email: string, password: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
 }
@@ -21,59 +24,86 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check for stored user on mount
+    const storedToken = localStorage.getItem('jwtToken');
     const storedUser = localStorage.getItem('redditUser');
-    if (storedUser) {
-      const parsed = JSON.parse(storedUser);
-      setUser({ ...parsed, createdAt: new Date(parsed.createdAt) });
+    if (storedToken && storedUser) {
+      try {
+        setToken(storedToken);
+        setUser(JSON.parse(storedUser));
+      } catch {
+        localStorage.removeItem('jwtToken');
+        localStorage.removeItem('redditUser');
+      }
     }
   }, []);
 
-  const login = (username: string, password: string) => {
-    // Mock login - in real app, this would call an API
-    if (password.length >= 4) {
-      const mockUser: User = {
-        id: 'user-' + Math.random().toString(36).substr(2, 9),
-        username,
-        email: `${username}@example.com`,
-        karma: 1547,
-        isModerator: username.toLowerCase() === 'admin' || username.toLowerCase() === 'moderator',
-        createdAt: new Date('2023-01-15'),
-      };
-      setUser(mockUser);
-      localStorage.setItem('redditUser', JSON.stringify(mockUser));
-      return true;
-    }
-    return false;
-  };
+  const login = useCallback(async (username: string, password: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${USER_SERVICE_URL}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
 
-  const signup = (username: string, email: string, password: string) => {
-    // Mock signup
-    if (username.length >= 3 && password.length >= 6 && email.includes('@')) {
-      const mockUser: User = {
-        id: 'user-' + Math.random().toString(36).substr(2, 9),
-        username,
-        email,
-        karma: 1,
-        isModerator: false,
-        createdAt: new Date(),
-      };
-      setUser(mockUser);
-      localStorage.setItem('redditUser', JSON.stringify(mockUser));
-      return true;
-    }
-    return false;
-  };
+      if (!response.ok) {
+        return false;
+      }
 
-  const logout = () => {
+      const data = await response.json();
+      const jwt: string = data.token;
+      const backendUser = data.user;
+
+      // Map backend UserDto to frontend User
+      const userData: User = {
+        id: backendUser.id,
+        username: backendUser.username,
+        email: backendUser.email,
+        isActive: backendUser.isActive ?? backendUser.active ?? true,
+        isModerator: backendUser.isModerator ?? false,
+        createdAt: backendUser.createdAt,
+      };
+
+      setToken(jwt);
+      setUser(userData);
+      localStorage.setItem('jwtToken', jwt);
+      localStorage.setItem('redditUser', JSON.stringify(userData));
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
+  const signup = useCallback(async (username: string, email: string, password: string): Promise<boolean> => {
+    try {
+      const response = await fetch(`${USER_SERVICE_URL}/api/users/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email, password }),
+      });
+
+      if (!response.ok) {
+        return false;
+      }
+
+      // Auto-login after successful registration
+      return await login(username, password);
+    } catch {
+      return false;
+    }
+  }, [login]);
+
+  const logout = useCallback(() => {
     setUser(null);
+    setToken(null);
+    localStorage.removeItem('jwtToken');
     localStorage.removeItem('redditUser');
-  };
+  }, []);
 
   return (
-    <AuthContext.Provider value={{ user, login, signup, logout, isAuthenticated: !!user }}>
+    <AuthContext.Provider value={{ user, token, login, signup, logout, isAuthenticated: !!token && !!user }}>
       {children}
     </AuthContext.Provider>
   );

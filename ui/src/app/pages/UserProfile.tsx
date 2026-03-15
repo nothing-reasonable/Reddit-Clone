@@ -1,18 +1,25 @@
 import { useParams, Link } from 'react-router';
-import { posts, comments, formatNumber } from '../data/mockData';
+import { formatNumber } from '../utils/format';
 import { useAuth } from '../contexts/AuthContext';
 import { Calendar, MessageSquare, FileText, Award, Settings, ArrowUp } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useState, useEffect } from 'react';
+import { getGlobalPosts } from '../services/contentApi';
+import type { Post } from '../types/domain';
 
 export default function UserProfile() {
   const { username } = useParams<{ username: string }>();
   const { user: currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'posts' | 'comments'>('posts');
   const [dbUser, setDbUser] = useState<any>(null);
+  const [userPosts, setUserPosts] = useState<Post[]>([]);
 
   useEffect(() => {
     if (username) {
+      getGlobalPosts('new')
+        .then((allPosts) => setUserPosts(allPosts.filter((p) => p.author === username)))
+        .catch(() => setUserPosts([]));
+
       fetch(`http://localhost:8081/api/users/${username}`)
         .then((res) => {
           if (!res.ok) throw new Error('Not found');
@@ -23,8 +30,7 @@ export default function UserProfile() {
     }
   }, [username]);
 
-  const userPosts = posts.filter((p) => p.author === username);
-  const userComments = comments.filter((c) => c.author === username);
+  const userComments: Array<{ id: string; postId: string; content: string; createdAt: Date; upvotes: number; downvotes: number }> = [];
   const totalKarma = userPosts.reduce((acc, p) => acc + (p.upvotes - p.downvotes), 0) +
     userComments.reduce((acc, c) => acc + (c.upvotes - c.downvotes), 0);
   const commentKarma = userComments.reduce((acc, c) => acc + (c.upvotes - c.downvotes), 0);
@@ -168,7 +174,7 @@ export default function UserProfile() {
               <div className="divide-y divide-gray-100">
                 {userComments.length > 0 ? (
                   userComments.map((comment) => {
-                    const post = posts.find((p) => p.id === comment.postId);
+                    const post = userPosts.find((p) => p.id === comment.postId);
                     return (
                       <div key={comment.id} className="p-4 hover:bg-gray-50 transition-colors">
                         <div className="text-xs text-gray-500 mb-1">

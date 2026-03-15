@@ -1,8 +1,9 @@
+import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
-import { modLogs, subreddits } from '../data/mockData';
-import { useState } from 'react';
+import { getSubredditByName } from '../services/subredditApi';
+import type { ModLogEntry, Subreddit } from '../types/domain';
 import { FileText, Shield, Gavel, UserX, Eye, Lock, Pin, Tag, BookOpen, ArrowLeft, Filter } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -55,8 +56,17 @@ export default function ModLog() {
   const navigate = useNavigate();
   const [filterAction, setFilterAction] = useState<string>('all');
   const [filterMod, setFilterMod] = useState<string>('all');
+  const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
 
-  const subredditData = subreddits.find((s) => s.name === subreddit);
+  const modLogs: ModLogEntry[] = [];
+
+  useEffect(() => {
+    if (!subreddit) return;
+    getSubredditByName(subreddit)
+      .then(setSubredditData)
+      .catch(() => setSubredditData(null));
+  }, [subreddit]);
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
     (user?.isModerator && subredditData?.moderators.includes(user.username));

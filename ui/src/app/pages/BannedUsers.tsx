@@ -1,8 +1,9 @@
+import { useEffect, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
-import { bannedUsers as initialBanned, subreddits } from '../data/mockData';
-import { useState } from 'react';
+import { getSubredditByName } from '../services/subredditApi';
+import type { BannedUser as BannedUserType, Subreddit } from '../types/domain';
 import { UserX, ArrowLeft, Plus, Trash2, Clock, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -12,14 +13,33 @@ export default function BannedUsers() {
   const { user } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
-  const [banned, setBanned] = useState(initialBanned.filter((b) => b.subreddit === subreddit));
+  const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [banned, setBanned] = useState<BannedUserType[]>([]);
   const [showBanForm, setShowBanForm] = useState(false);
   const [newBan, setNewBan] = useState({ username: '', reason: '', permanent: true, duration: '30' });
 
-  const subredditData = subreddits.find((s) => s.name === subreddit);
+  useEffect(() => {
+    if (!subreddit) return;
+
+    setIsLoading(true);
+    getSubredditByName(subreddit)
+      .then((record) => setSubredditData(record))
+      .catch(() => setSubredditData(null))
+      .finally(() => setIsLoading(false));
+  }, [subreddit]);
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
     (user?.isModerator && subredditData?.moderators.includes(user.username));
+
+  if (isLoading) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="bg-white border border-gray-300 rounded p-8 text-center text-gray-600">Loading banned users...</div>
+      </div>
+    );
+  }
 
   if (!isModerator) {
     return (

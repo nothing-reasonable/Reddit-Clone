@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
-import { userMessages as mockMessages } from '../data/mockData';
+import type { UserMessage } from '../types/domain';
 import { Mail, Send, Inbox, Circle, Trash2, X, Plus } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
@@ -10,7 +10,7 @@ type Tab = 'inbox' | 'sent' | 'all';
 
 export default function InboxPage() {
   const { user, isAuthenticated } = useAuth();
-  const [messages, setMessages] = useState(mockMessages);
+  const [messages, setMessages] = useState<UserMessage[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('inbox');
   const [selectedMessage, setSelectedMessage] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');

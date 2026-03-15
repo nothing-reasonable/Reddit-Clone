@@ -1,13 +1,48 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import PostCard from '../components/PostCard';
-import { posts, subreddits, formatNumber } from '../data/mockData';
+import { formatNumber } from '../utils/format';
 import { TrendingUp, Sparkles, Clock, Flame, Plus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { getGlobalPosts } from '../services/contentApi';
+import { getAllSubreddits } from '../services/subredditApi';
+import type { Post, Subreddit } from '../types/domain';
 
 export default function Home() {
   const [sortBy, setSortBy] = useState<'hot' | 'new' | 'top' | 'rising'>('hot');
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [subreddits, setSubreddits] = useState<Subreddit[]>([]);
+  const [loading, setLoading] = useState(true);
   const { isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadData() {
+      setLoading(true);
+      try {
+        const [loadedPosts, loadedSubreddits] = await Promise.all([
+          getGlobalPosts(sortBy),
+          getAllSubreddits(),
+        ]);
+        if (cancelled) return;
+        setPosts(loadedPosts);
+        setSubreddits(loadedSubreddits);
+      } catch {
+        if (cancelled) return;
+        setPosts([]);
+        setSubreddits([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sortBy]);
 
   const sortedPosts = [...posts].filter((p) => !p.removed).sort((a, b) => {
     if (sortBy === 'hot') {
@@ -69,7 +104,17 @@ export default function Home() {
 
         {/* Posts Feed */}
         <div className="space-y-3">
-          {sortedPosts.map((post) => (
+          {loading && (
+            <div className="bg-white border border-gray-300 rounded p-8 text-center text-gray-500">
+              Loading posts...
+            </div>
+          )}
+          {!loading && sortedPosts.length === 0 && (
+            <div className="bg-white border border-gray-300 rounded p-8 text-center text-gray-500">
+              No posts available yet.
+            </div>
+          )}
+          {!loading && sortedPosts.map((post) => (
             <PostCard key={post.id} post={post} />
           ))}
         </div>

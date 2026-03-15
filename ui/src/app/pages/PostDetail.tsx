@@ -1,17 +1,23 @@
 import { useParams, Link } from 'react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowUp, ArrowDown, Share2, Bookmark, BookmarkCheck, Award, MoreHorizontal, Flag, Lock, Trash2, Pin } from 'lucide-react';
-import CommentComponent from '../components/CommentComponent';
-import { posts, comments, getAwardEmoji, formatNumber, subreddits } from '../data/mockData';
+import { formatNumber } from '../utils/format';
+import { getAwardEmoji } from '../utils/awards';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { toast } from 'sonner';
+import { getPostById } from '../services/contentApi';
+import { getSubredditByName } from '../services/subredditApi';
+import type { Post } from '../types/domain';
 
 export default function PostDetail() {
   const { postId, subreddit } = useParams<{ postId: string; subreddit: string }>();
   const { user, isAuthenticated } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
+  const [post, setPost] = useState<Post | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [backendModerators, setBackendModerators] = useState<string[]>([]);
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [commentText, setCommentText] = useState('');
   const [saved, setSaved] = useState(false);
@@ -20,14 +26,55 @@ export default function PostDetail() {
   const [isPinned, setIsPinned] = useState(false);
   const [isRemoved, setIsRemoved] = useState(false);
 
-  const post = posts.find((p) => p.id === postId);
-  const postComments = comments.filter((c) => c.postId === postId && !c.parentId);
-  const allComments = comments.filter((c) => c.postId === postId);
+  useEffect(() => {
+    let cancelled = false;
 
-  const subredditData = subreddits.find((s) => s.name === subreddit);
+    async function loadData() {
+      if (!postId) {
+        setLoading(false);
+        return;
+      }
+      setLoading(true);
+
+      try {
+        const [loadedPost, loadedSubreddit] = await Promise.all([
+          getPostById(postId),
+          subreddit ? getSubredditByName(subreddit) : Promise.resolve(null),
+        ]);
+
+        if (cancelled) return;
+        setPost(loadedPost);
+        setBackendModerators(loadedSubreddit?.moderators ?? []);
+      } catch {
+        if (!cancelled) {
+          setPost(null);
+          setBackendModerators([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [postId, subreddit]);
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
-    (user?.isModerator && subredditData?.moderators.includes(user?.username || ''));
+    backendModerators.some((moderator) => moderator === (user?.username || ''));
+
+  if (loading) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="bg-white border border-gray-300 rounded p-8 text-center">
+          <h1 className="text-2xl font-bold mb-2">Loading post...</h1>
+        </div>
+      </div>
+    );
+  }
 
   if (!post) {
     return (
@@ -52,13 +99,8 @@ export default function PostDetail() {
     if (commentText.trim()) { toast.success('Comment posted!'); setCommentText(''); }
   };
 
-  const handleReply = (commentId: string) => {
-    if (isLocked) { toast.error('This post is locked'); return; }
-    toast.success('Reply posted!');
-  };
-
-  const getReplies = (commentId: string) => {
-    return comments.filter((c) => c.parentId === commentId);
+  const handleReply = () => {
+    toast.info('Replies are not available yet.');
   };
 
   const handleShare = () => {
@@ -268,7 +310,7 @@ export default function PostDetail() {
       <div className="bg-white border border-gray-300 rounded p-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-bold text-sm">
-            {allComments.length} {allComments.length === 1 ? 'Comment' : 'Comments'}
+            Comments
           </h2>
           <select className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none">
             <option>Best</option>
@@ -278,19 +320,7 @@ export default function PostDetail() {
           </select>
         </div>
         <div className="space-y-3">
-          {postComments.length > 0 ? (
-            postComments.map((comment) => (
-              <CommentComponent
-                key={comment.id}
-                comment={comment}
-                replies={getReplies(comment.id)}
-                onReply={handleReply}
-                isModerator={isModerator}
-              />
-            ))
-          ) : (
-            <p className="text-gray-500 text-center py-8 text-sm">No comments yet. Be the first to comment!</p>
-          )}
+          <p className="text-gray-500 text-center py-8 text-sm">Comments are not available from backend yet.</p>
         </div>
       </div>
     </div>

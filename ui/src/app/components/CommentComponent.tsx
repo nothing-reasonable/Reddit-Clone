@@ -1,5 +1,5 @@
 import { ArrowUp, ArrowDown, MessageSquare, Flag, MoreHorizontal, Trash2, Shield } from 'lucide-react';
-import { Comment } from '../data/mockData';
+import type { Comment } from '../types/domain';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { formatDistanceToNow } from 'date-fns';

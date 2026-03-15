@@ -1,39 +1,57 @@
 import { useSearchParams, Link } from 'react-router';
-import { useState } from 'react';
-import { posts, subreddits, comments } from '../data/mockData';
+import { useEffect, useState } from 'react';
 import PostCard from '../components/PostCard';
 import { Search, Users, FileText, MessageSquare } from 'lucide-react';
+import type { Post, Subreddit } from '../types/domain';
+import { searchCommunities, searchPosts } from '../services/communityApi';
 
 export default function SearchResults() {
   const [searchParams] = useSearchParams();
   const query = searchParams.get('q') || '';
   const [activeTab, setActiveTab] = useState<'posts' | 'communities' | 'comments'>('posts');
+  const [matchedPosts, setMatchedPosts] = useState<Post[]>([]);
+  const [matchedSubs, setMatchedSubs] = useState<Subreddit[]>([]);
+  const [loading, setLoading] = useState(false);
 
-  const lowerQuery = query.toLowerCase();
+  useEffect(() => {
+    let cancelled = false;
 
-  const matchedPosts = posts.filter(
-    (p) =>
-      p.title.toLowerCase().includes(lowerQuery) ||
-      p.content.toLowerCase().includes(lowerQuery) ||
-      p.author.toLowerCase().includes(lowerQuery)
-  );
+    async function loadResults() {
+      if (!query.trim()) {
+        setMatchedPosts([]);
+        setMatchedSubs([]);
+        return;
+      }
 
-  const matchedSubs = subreddits.filter(
-    (s) =>
-      s.name.toLowerCase().includes(lowerQuery) ||
-      s.description.toLowerCase().includes(lowerQuery)
-  );
+      setLoading(true);
+      try {
+        const [posts, communities] = await Promise.all([
+          searchPosts(query),
+          searchCommunities(query),
+        ]);
+        if (cancelled) return;
+        setMatchedPosts(posts);
+        setMatchedSubs(communities);
+      } catch {
+        if (cancelled) return;
+        setMatchedPosts([]);
+        setMatchedSubs([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
 
-  const matchedComments = comments.filter(
-    (c) =>
-      c.content.toLowerCase().includes(lowerQuery) ||
-      c.author.toLowerCase().includes(lowerQuery)
-  );
+    void loadResults();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [query]);
 
   const tabs = [
     { id: 'posts' as const, label: 'Posts', icon: FileText, count: matchedPosts.length },
     { id: 'communities' as const, label: 'Communities', icon: Users, count: matchedSubs.length },
-    { id: 'comments' as const, label: 'Comments', icon: MessageSquare, count: matchedComments.length },
+    { id: 'comments' as const, label: 'Comments', icon: MessageSquare, count: 0 },
   ];
 
   if (!query) {
@@ -77,7 +95,11 @@ export default function SearchResults() {
       {/* Posts */}
       {activeTab === 'posts' && (
         <div className="space-y-4">
-          {matchedPosts.length > 0 ? (
+          {loading ? (
+            <div className="bg-white border border-gray-300 rounded p-8 text-center">
+              <p className="text-gray-600">Searching posts...</p>
+            </div>
+          ) : matchedPosts.length > 0 ? (
             matchedPosts.map((post) => <PostCard key={post.id} post={post} />)
           ) : (
             <div className="bg-white border border-gray-300 rounded p-8 text-center">
@@ -123,31 +145,9 @@ export default function SearchResults() {
       {/* Comments */}
       {activeTab === 'comments' && (
         <div className="space-y-3">
-          {matchedComments.length > 0 ? (
-            matchedComments.map((comment) => {
-              const post = posts.find((p) => p.id === comment.postId);
-              return (
-                <Link
-                  key={comment.id}
-                  to={`/r/${post?.subreddit}/comments/${post?.id}`}
-                  className="block bg-white border border-gray-300 rounded p-4 hover:border-gray-400 transition-colors"
-                >
-                  <div className="text-xs text-gray-500 mb-2">
-                    <span className="font-semibold text-blue-500">u/{comment.author}</span> commented on{' '}
-                    <span className="font-semibold">{post?.title}</span> in r/{post?.subreddit}
-                  </div>
-                  <p className="text-sm text-gray-800">{comment.content}</p>
-                  <div className="text-xs text-gray-500 mt-2">
-                    {comment.upvotes} upvotes
-                  </div>
-                </Link>
-              );
-            })
-          ) : (
-            <div className="bg-white border border-gray-300 rounded p-8 text-center">
-              <p className="text-gray-600">No comments found for &ldquo;{query}&rdquo;</p>
-            </div>
-          )}
+          <div className="bg-white border border-gray-300 rounded p-8 text-center">
+            <p className="text-gray-600">Comment search is not available yet.</p>
+          </div>
         </div>
       )}
     </div>

@@ -1,27 +1,55 @@
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
-import { posts, comments, subreddits } from '../data/mockData';
-import { useState } from 'react';
+import { getSubredditByName } from '../services/subredditApi';
+import { getSubredditPosts } from '../services/contentApi';
+import type { Comment, Post, Subreddit } from '../types/domain';
 import { Flag, CheckCircle, XCircle, Eye, Square, CheckSquare, Trash2, ShieldCheck, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
-const MOCK_REPORTED_USERS = [
-  { username: 'trollUser42', reason: 'Harassment in multiple threads', reportCount: 5, reportedAt: new Date('2026-02-26T05:00:00') },
-  { username: 'spamAccount99', reason: 'Posting spam links repeatedly', reportCount: 8, reportedAt: new Date('2026-02-25T20:00:00') },
-];
+const REPORTED_USERS: Array<{ username: string; reason: string; reportCount: number; reportedAt: Date }> = [];
 
 export default function ModQueue() {
   const { subreddit } = useParams<{ subreddit: string }>();
   const { user } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
+  const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const subredditData = subreddits.find((s) => s.name === subreddit);
+  useEffect(() => {
+    if (!subreddit) return;
+
+    let isMounted = true;
+    setIsLoading(true);
+
+    Promise.all([getSubredditByName(subreddit), getSubredditPosts(subreddit)])
+      .then(([subredditRecord, subredditPosts]) => {
+        if (!isMounted) return;
+        setSubredditData(subredditRecord);
+        setPosts(subredditPosts);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setSubredditData(null);
+        setPosts([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [subreddit]);
+
   const isModerator = isSubredditModerator(subreddit || '') || (user?.isModerator && subredditData?.moderators.includes(user.username));
 
   const [filter, setFilter] = useState<'all' | 'posts' | 'comments' | 'users'>('all');
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+  const comments: Comment[] = [];
 
   const flaggedPosts = posts.filter((p) => p.subreddit === subreddit && p.flagged && !p.removed);
   const flaggedComments = comments.filter((c) => {
@@ -31,6 +59,14 @@ export default function ModQueue() {
 
   const [removedItems, setRemovedItems] = useState<Set<string>>(new Set());
   const [approvedItems, setApprovedItems] = useState<Set<string>>(new Set());
+
+  if (isLoading) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="bg-white border border-gray-300 rounded p-8 text-center text-gray-600">Loading moderation queue...</div>
+      </div>
+    );
+  }
 
   if (!isModerator) {
     return (
@@ -110,13 +146,13 @@ export default function ModQueue() {
       ? visiblePosts.length
       : filter === 'comments'
       ? visibleComments.length
-      : MOCK_REPORTED_USERS.length;
+      : REPORTED_USERS.length;
 
   const tabs = [
     { id: 'all' as const, label: 'All', count: visiblePosts.length + visibleComments.length },
     { id: 'posts' as const, label: 'Posts', count: visiblePosts.length },
     { id: 'comments' as const, label: 'Comments', count: visibleComments.length },
-    { id: 'users' as const, label: 'Users', count: MOCK_REPORTED_USERS.length },
+    { id: 'users' as const, label: 'Users', count: REPORTED_USERS.length },
   ];
 
   return (
@@ -216,13 +252,13 @@ export default function ModQueue() {
       <div className="space-y-4">
         {filter === 'users' ? (
           // Users tab
-          MOCK_REPORTED_USERS.length === 0 ? (
+          REPORTED_USERS.length === 0 ? (
             <div className="bg-white border border-gray-300 rounded p-8 text-center">
               <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
               <h2 className="text-xl font-bold mb-2">No Reported Users</h2>
             </div>
           ) : (
-            MOCK_REPORTED_USERS.map((u) => (
+            REPORTED_USERS.map((u) => (
               <div key={u.username} className="bg-white border-2 border-orange-300 rounded p-4">
                 <div className="flex items-start gap-4">
                   <div className="w-10 h-10 bg-orange-100 rounded-full flex items-center justify-center text-orange-600 font-bold">

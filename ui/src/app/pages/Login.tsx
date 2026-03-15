@@ -6,17 +6,25 @@ import { toast } from 'sonner';
 export default function Login() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const success = login(username, password);
-    if (success) {
-      toast.success('Welcome back!');
-      navigate('/');
-    } else {
-      toast.error('Invalid credentials. Password must be at least 4 characters.');
+    setLoading(true);
+    try {
+      const success = await login(username, password);
+      if (success) {
+        toast.success('Welcome back!');
+        navigate('/');
+      } else {
+        toast.error('Invalid username or password.');
+      }
+    } catch {
+      toast.error('Login failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -27,10 +35,7 @@ export default function Login() {
           <div className="text-center mb-8">
             <h1 className="text-3xl font-bold mb-2">Log In</h1>
             <p className="text-gray-600">
-              Demo: Use any username and a password with 4+ characters
-            </p>
-            <p className="text-sm text-gray-500 mt-2">
-              (Use username "admin" or "moderator" for mod access)
+              Sign in to your Reddit account
             </p>
           </div>
 
@@ -47,6 +52,7 @@ export default function Login() {
                 className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
                 placeholder="Enter username"
                 required
+                disabled={loading}
               />
             </div>
 
@@ -62,14 +68,16 @@ export default function Login() {
                 className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
                 placeholder="Enter password"
                 required
+                disabled={loading}
               />
             </div>
 
             <button
               type="submit"
-              className="w-full bg-orange-500 text-white py-2 rounded-full font-semibold hover:bg-orange-600 transition-colors"
+              disabled={loading}
+              className="w-full bg-orange-500 text-white py-2 rounded-full font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Log In
+              {loading ? 'Logging in...' : 'Log In'}
             </button>
           </form>
 

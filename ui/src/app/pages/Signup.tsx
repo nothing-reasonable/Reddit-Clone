@@ -7,33 +7,25 @@ export default function Signup() {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
   const { signup } = useAuth();
   const navigate = useNavigate();
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
     try {
-      const response = await fetch('http://localhost:8081/api/users/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username, email, password }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Registration failed');
-      }
-
-      const success = signup(username, email, password); // update local context mock
+      const success = await signup(username, email, password);
       if (success) {
         toast.success('Account created successfully!');
         navigate('/');
       } else {
-        toast.error('Invalid input according to local context.');
+        toast.error('Registration failed. Please check your details and try again.');
       }
-    } catch (error) {
-      toast.error('Registration failed via API.');
+    } catch {
+      toast.error('Registration failed. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -59,6 +51,7 @@ export default function Signup() {
                 className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
                 placeholder="Choose a username"
                 required
+                disabled={loading}
               />
             </div>
 
@@ -74,6 +67,7 @@ export default function Signup() {
                 className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
                 placeholder="Enter your email"
                 required
+                disabled={loading}
               />
             </div>
 
@@ -89,14 +83,16 @@ export default function Signup() {
                 className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-blue-500"
                 placeholder="Create a password (6+ characters)"
                 required
+                disabled={loading}
               />
             </div>
 
             <button
               type="submit"
-              className="w-full bg-orange-500 text-white py-2 rounded-full font-semibold hover:bg-orange-600 transition-colors"
+              disabled={loading}
+              className="w-full bg-orange-500 text-white py-2 rounded-full font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Sign Up
+              {loading ? 'Creating account...' : 'Sign Up'}
             </button>
           </form>
 

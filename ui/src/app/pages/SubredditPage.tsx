@@ -1,12 +1,15 @@
 import { useParams, Link } from 'react-router';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import PostCard from '../components/PostCard';
-import { posts, subreddits, formatNumber } from '../data/mockData';
+import { formatNumber } from '../utils/format';
 import { TrendingUp, Sparkles, Clock, Flame, Settings, Shield, UserPlus, CheckCircle, Plus, BookOpen, Users, Calendar, ChevronDown, Flag, FileText, Mail, BarChart3, UserX } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
+import { getSubredditByName } from '../services/subredditApi';
+import { getSubredditPosts } from '../services/contentApi';
+import type { Post, Subreddit } from '../types/domain';
 
 type TopDuration = 'hour' | 'day' | 'week' | 'month' | 'year' | 'all';
 
@@ -15,6 +18,11 @@ export default function SubredditPage() {
   const [sortBy, setSortBy] = useState<'hot' | 'new' | 'top' | 'rising'>('hot');
   const [topDuration, setTopDuration] = useState<TopDuration>('day');
   const [showModTools, setShowModTools] = useState(false);
+  const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
+  const [subredditPosts, setSubredditPosts] = useState<Post[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(true);
+  const [loadingSubreddit, setLoadingSubreddit] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const { user, isAuthenticated } = useAuth();
   const {
     joinSubreddit,
@@ -25,8 +33,66 @@ export default function SubredditPage() {
     pendingModApplications,
   } = useSubreddit();
 
-  const subredditData = subreddits.find((s) => s.name === subreddit);
-  const subredditPosts = posts.filter((p) => p.subreddit === subreddit && !p.removed);
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSubreddit() {
+      if (!subreddit) {
+        setSubredditData(null);
+        setLoadingSubreddit(false);
+        return;
+      }
+
+      setLoadingSubreddit(true);
+      setLoadError(null);
+
+      try {
+        const backendData = await getSubredditByName(subreddit);
+        if (cancelled) return;
+        setSubredditData(backendData);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : 'Failed to load subreddit';
+        setLoadError(message);
+        setSubredditData(null);
+      } finally {
+        if (!cancelled) setLoadingSubreddit(false);
+      }
+    }
+
+    void loadSubreddit();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [subreddit]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadPosts() {
+      if (!subreddit) {
+        setSubredditPosts([]);
+        setLoadingPosts(false);
+        return;
+      }
+
+      setLoadingPosts(true);
+      try {
+        const data = await getSubredditPosts(subreddit, sortBy);
+        if (!cancelled) setSubredditPosts(data);
+      } catch {
+        if (!cancelled) setSubredditPosts([]);
+      } finally {
+        if (!cancelled) setLoadingPosts(false);
+      }
+    }
+
+    void loadPosts();
+    return () => {
+      cancelled = true;
+    };
+  }, [subreddit, sortBy]);
 
   const sortedPosts = [...subredditPosts].sort((a, b) => {
     if (sortBy === 'hot') return b.upvotes - b.downvotes - (a.upvotes - a.downvotes);
@@ -36,7 +102,12 @@ export default function SubredditPage() {
   });
 
   const joined = isJoined(subreddit || '');
-  const isModerator = isSubredditModerator(subreddit || '') || (user?.isModerator && subredditData?.moderators.includes(user.username));
+  const isModerator =
+    isSubredditModerator(subreddit || '') ||
+    (subredditData?.moderators ?? []).some(
+      (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
+    ) ||
+    false;
   const hasPendingApplication = pendingModApplications.includes(subreddit || '');
 
   const handleJoinLeave = () => {
@@ -56,12 +127,24 @@ export default function SubredditPage() {
     }, 2000);
   };
 
+  if (loadingSubreddit) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="bg-white border border-gray-300 rounded p-8 text-center">
+          <h1 className="text-2xl font-bold mb-2">Loading subreddit...</h1>
+          <p className="text-gray-600">Fetching r/{subreddit}.</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!subredditData) {
     return (
       <div className="max-w-3xl mx-auto p-4">
         <div className="bg-white border border-gray-300 rounded p-8 text-center">
           <h1 className="text-2xl font-bold mb-2">Subreddit not found</h1>
           <p className="text-gray-600">The subreddit r/{subreddit} does not exist.</p>
+          {loadError && <p className="text-red-500 text-sm mt-3">{loadError}</p>}
         </div>
       </div>
     );
@@ -237,7 +320,11 @@ export default function SubredditPage() {
 
           {/* Posts */}
           <div className="space-y-3">
-            {sortedPosts.length > 0 ? (
+            {loadingPosts ? (
+              <div className="bg-white border border-gray-300 rounded p-8 text-center">
+                <p className="text-gray-600">Loading posts...</p>
+              </div>
+            ) : sortedPosts.length > 0 ? (
               sortedPosts.map((post) => <PostCard key={post.id} post={post} showSubreddit={false} />)
             ) : (
               <div className="bg-white border border-gray-300 rounded p-8 text-center">

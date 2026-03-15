@@ -1,7 +1,10 @@
-import { useParams, Link, Outlet, useLocation } from 'react-router';
+import { useEffect, useState } from 'react';
+import { useParams, Link, useLocation } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
-import { subreddits, posts, comments, modLogs, bannedUsers, modMails } from '../data/mockData';
+import { getSubredditByName } from '../services/subredditApi';
+import { getSubredditPosts } from '../services/contentApi';
+import type { BannedUser, ModLogEntry, ModMail, Post, Subreddit } from '../types/domain';
 import {
   Shield, Flag, Settings, Users, FileText, Mail,
   BarChart3, Gavel, Lock, Pin, UserX, Eye,
@@ -15,8 +18,49 @@ export default function ModTools() {
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
   const location = useLocation();
+  const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const subredditData = subreddits.find((s) => s.name === subreddit);
+  const comments: Array<{ id: string; postId: string; flagged?: boolean; removed?: boolean }> = [];
+  const modLogs: ModLogEntry[] = [];
+  const bannedUsers: BannedUser[] = [];
+  const modMails: ModMail[] = [];
+
+  useEffect(() => {
+    if (!subreddit) return;
+
+    let isMounted = true;
+    setIsLoading(true);
+
+    Promise.all([getSubredditByName(subreddit), getSubredditPosts(subreddit)])
+      .then(([subredditRecord, subredditPosts]) => {
+        if (!isMounted) return;
+        setSubredditData(subredditRecord);
+        setPosts(subredditPosts);
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setSubredditData(null);
+        setPosts([]);
+      })
+      .finally(() => {
+        if (isMounted) setIsLoading(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [subreddit]);
+
+  if (isLoading) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="bg-white border border-gray-300 rounded p-8 text-center text-gray-600">Loading mod tools...</div>
+      </div>
+    );
+  }
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
     (user?.isModerator && subredditData?.moderators.includes(user.username));

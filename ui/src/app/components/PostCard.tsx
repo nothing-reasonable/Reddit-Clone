@@ -1,6 +1,8 @@
 import { Link } from 'react-router';
 import { ArrowUp, ArrowDown, MessageSquare, Share2, Bookmark, Flag, Award, BookmarkCheck, X, Copy, ExternalLink, MessageCircle } from 'lucide-react';
-import { Post, getAwardEmoji, formatNumber } from '../data/mockData';
+import { getAwardEmoji } from '../utils/awards';
+import { formatNumber } from '../utils/format';
+import type { Post } from '../types/domain';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
