@@ -23,6 +23,7 @@ import NotFound from './pages/NotFound';
 import InboxPage from './pages/InboxPage';
 import WikiPage from './pages/WikiPage';
 import CreateCommunity from './pages/CreateCommunity';
+import RouteErrorPage from './pages/RouteErrorPage';
 
 function RootProviders() {
   return (
@@ -37,10 +38,12 @@ function RootProviders() {
 export const router = createBrowserRouter([
   {
     element: <RootProviders />,
+    errorElement: <RouteErrorPage />,
     children: [
       {
         path: '/',
         element: <Layout />,
+        errorElement: <RouteErrorPage />,
         children: [
           { index: true, element: <Home /> },
           { path: 'login', element: <Login /> },

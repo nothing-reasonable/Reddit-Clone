@@ -37,6 +37,24 @@ type ActionType =
   | 'sticky'
   | 'set_flair';
 
+const ACTION_TYPES: ActionType[] = [
+  'approve',
+  'remove',
+  'flag',
+  'send_modmail',
+  'lock',
+  'sticky',
+  'set_flair',
+];
+
+function isActionType(value: unknown): value is ActionType {
+  return typeof value === 'string' && ACTION_TYPES.includes(value as ActionType);
+}
+
+function normalizeAction(value: unknown): ActionType {
+  return isActionType(value) ? value : 'flag';
+}
+
 
 interface RichAutoModRule {
   id: string;
@@ -422,9 +440,18 @@ export default function AutoModSettings() {
                   : `Custom Rule ${idx + 1}: ${result.error}`
               );
             } else if (result.triggered) {
+              const normalizedAction = normalizeAction(result.action);
+              if (result.action && !isActionType(result.action)) {
+                setTestError((prev) =>
+                  prev
+                    ? `${prev}\nCustom Rule ${idx + 1}: Unsupported action "${result.action}". Falling back to "flag".`
+                    : `Custom Rule ${idx + 1}: Unsupported action "${result.action}". Falling back to "flag".`
+                );
+              }
+
               matches.push({
                 rule: yamlDocuments.length > 1 ? `Custom Rule ${idx + 1}` : 'Custom Rule',
-                action: (result.action || 'flag') as ActionType,
+                action: normalizedAction,
                 message: result.message || undefined,
               });
             }
@@ -455,9 +482,18 @@ export default function AutoModSettings() {
             if (result.error) {
               setTestError((prev) => prev ? `${prev}\n${rule.name}: ${result.error}` : `${rule.name}: ${result.error}`);
             } else if (result.triggered) {
+              const normalizedAction = normalizeAction(result.action);
+              if (result.action && !isActionType(result.action)) {
+                setTestError((prev) =>
+                  prev
+                    ? `${prev}\n${rule.name}: Unsupported action "${result.action}". Falling back to "flag".`
+                    : `${rule.name}: Unsupported action "${result.action}". Falling back to "flag".`
+                );
+              }
+
               matches.push({
                 rule: rule.name,
-                action: (result.action || 'flag') as ActionType,
+                action: normalizedAction,
                 message: result.message || rule.messageToUser || undefined,
               });
             }
@@ -588,7 +624,8 @@ export default function AutoModSettings() {
             <div className="space-y-3">
               {rules.map((rule) => {
                 const expanded = expandedRule === rule.id;
-                const ActionIcon = ACTION_ICONS[rule.action];
+                const ruleAction = normalizeAction(rule.action);
+                const ActionIcon = ACTION_ICONS[ruleAction];
                 return (
                   <div key={rule.id} className={`bg-white border rounded-lg overflow-hidden transition-colors ${rule.enabled ? 'border-gray-300' : 'border-gray-200 opacity-70'}`}>
                     {/* Summary Row */}
@@ -608,11 +645,11 @@ export default function AutoModSettings() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <span className="font-semibold text-sm truncate">{rule.name}</span>
-                          <span className={`flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full font-semibold ${ACTION_COLORS[rule.action]} bg-gray-100`}>
+                          <span className={`flex items-center gap-1 px-2 py-0.5 text-[11px] rounded-full font-semibold ${ACTION_COLORS[ruleAction]} bg-gray-100`}>
                             <ActionIcon className="w-3 h-3" />
-                            {ACTION_LABELS[rule.action]}
+                            {ACTION_LABELS[ruleAction]}
                           </span>
-                          {rule.action === 'send_modmail' && (
+                          {ruleAction === 'send_modmail' && (
                             <span className="px-1.5 py-0.5 text-[10px] rounded bg-blue-50 text-blue-600 font-medium">+ Modmail</span>
                           )}
                         </div>
@@ -885,13 +922,14 @@ export default function AutoModSettings() {
                       </div>
                       <div className="space-y-2">
                         {testResults.map((r, i) => {
-                          const Icon = ACTION_ICONS[r.action];
+                          const action = normalizeAction(r.action);
+                          const Icon = ACTION_ICONS[action];
                           return (
                             <div key={i} className="bg-white rounded-lg border border-red-100 p-3">
                               <div className="flex items-center gap-2 mb-1">
-                                <Icon className={`w-4 h-4 ${ACTION_COLORS[r.action]}`} />
+                                <Icon className={`w-4 h-4 ${ACTION_COLORS[action]}`} />
                                 <span className="font-semibold text-sm">{r.rule}</span>
-                                <span className={`text-xs font-semibold ${ACTION_COLORS[r.action]}`}>&rarr; {ACTION_LABELS[r.action]}</span>
+                                <span className={`text-xs font-semibold ${ACTION_COLORS[action]}`}>&rarr; {ACTION_LABELS[action]}</span>
                               </div>
                               {r.message && (
                                 <p className="text-xs text-gray-600 ml-6 bg-gray-50 rounded px-2 py-1 mt-1">
