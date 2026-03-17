@@ -31,22 +31,31 @@ public class ModeratorAuthService {
 
         SubredditMemberDto[] members;
         try {
+            System.out.println("[ModeratorAuth] Fetching from: " + subredditServiceBaseUrl + "/api/subreddits/{name}/members : " + subredditName);
             members = restClient.get()
                     .uri(subredditServiceBaseUrl + "/api/subreddits/{name}/members", subredditName)
                     .retrieve()
                     .body(SubredditMemberDto[].class);
+            System.out.println("[ModeratorAuth] Fetched members count: " + (members == null ? 0 : members.length));
         } catch (RestClientException ex) {
+            System.out.println("[ModeratorAuth] RestClientException thrown: " + ex.getMessage());
+            ex.printStackTrace();
             throw new AuthorizationException(503, "Unable to verify moderator membership");
         }
 
         boolean moderator = members != null && java.util.Arrays.stream(members)
                 .filter(Objects::nonNull)
-                .anyMatch(member -> username.equalsIgnoreCase(member.getUsername())
-                        && "MODERATOR".equalsIgnoreCase(normalize(member.getRole())));
+                .anyMatch(member -> {
+                    System.out.println("[ModeratorAuth] Checking username " + username + " against member " + member.getUsername() + " with role " + member.getRole());
+                    return username.equalsIgnoreCase(member.getUsername())
+                        && "MODERATOR".equalsIgnoreCase(normalize(member.getRole()));
+                });
 
         if (!moderator) {
+            System.out.println("[ModeratorAuth] REJECTING user " + username + " from mod actions on " + subredditName);
             throw new AuthorizationException(403, "Moderator role required");
         }
+        System.out.println("[ModeratorAuth] SUCCESS. " + username + " is verified as moderator for " + subredditName);
     }
 
     private String normalize(String role) {

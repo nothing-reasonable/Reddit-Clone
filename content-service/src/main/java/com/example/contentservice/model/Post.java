@@ -62,6 +62,12 @@ public class Post {
     private String flair;
 
     @Builder.Default
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private int reports = 0;
+
+    // Kept to satisfy existing postgres schema constraints
+    @Builder.Default
+    @Column(nullable = false)
     private boolean flagged = false;
     
     @Builder.Default

@@ -28,11 +28,11 @@ public class ContentService {
     private final SubredditClient subredditClient;
 
     public Page<Post> getGlobalPosts(Pageable pageable) {
-        return postRepository.findAll(pageable);
+        return postRepository.findByRemovedFalse(pageable);
     }
 
     public Page<Post> getSubredditPosts(String subreddit, Pageable pageable) {
-        return postRepository.findBySubreddit(subreddit, pageable);
+        return postRepository.findBySubredditAndRemovedFalse(subreddit, pageable);
     }
 
     @Transactional
@@ -168,5 +168,22 @@ public class ContentService {
     public void unsavePost(String postId, String requesterUsername) {
         savedPostRepository.findByPostIdAndUsername(postId, requesterUsername)
                 .ifPresent(savedPostRepository::delete);
+    }
+
+    @Transactional
+    public void reportPost(String postId) {
+        Post post = getPost(postId);
+        post.setReports(post.getReports() + 1);
+        postRepository.save(post);
+    }
+
+    public Page<Post> getReportedPosts(String subreddit, Pageable pageable) {
+        // Fetch posts that have at least 1 report and are not yet removed
+        return postRepository.findBySubredditAndReportsGreaterThanAndRemovedFalse(subreddit, 0, pageable);
+    }
+
+    @Transactional
+    public void savePostInternal(Post post) {
+        postRepository.save(post);
     }
 }

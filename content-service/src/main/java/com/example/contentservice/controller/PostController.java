@@ -116,6 +116,12 @@ public class PostController {
         postService.unsavePost(postId, principal.getName());
     }
 
+    @PostMapping("/posts/{postId}/reports")
+    @ResponseStatus(HttpStatus.CREATED)
+    public void reportPost(@PathVariable String postId) {
+        postService.reportPost(postId);
+    }
+
     private PaginatedResponse<Post> buildPaginatedResponse(Page<Post> page, int pageNum) {
         Pagination pagination = new Pagination(
                 page.hasNext() ? String.valueOf(pageNum + 1) : null,

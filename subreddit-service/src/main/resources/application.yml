@@ -5,7 +5,7 @@ spring:
   application:
     name: subreddit-service
   datasource:
-    url: jdbc:postgresql://localhost:5433/subredditdb
+    url: jdbc:postgresql://localhost:5432/subredditdb
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
