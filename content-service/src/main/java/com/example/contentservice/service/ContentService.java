@@ -186,4 +186,50 @@ public class ContentService {
     public void savePostInternal(Post post) {
         postRepository.save(post);
     }
+
+    // ── Individual Mod Actions ──────────────────────────────────────────
+
+    @Transactional
+    public Post approvePost(String postId) {
+        Post post = getPost(postId);
+        post.setReports(0);
+        post.setFlagged(false);
+        post.setRemoved(false);
+        return postRepository.save(post);
+    }
+
+    @Transactional
+    public Post removePostAsMod(String postId) {
+        Post post = getPost(postId);
+        post.setRemoved(true);
+        return postRepository.save(post);
+    }
+
+    @Transactional
+    public Post lockPost(String postId) {
+        Post post = getPost(postId);
+        post.setLocked(true);
+        return postRepository.save(post);
+    }
+
+    @Transactional
+    public Post unlockPost(String postId) {
+        Post post = getPost(postId);
+        post.setLocked(false);
+        return postRepository.save(post);
+    }
+
+    @Transactional
+    public Post pinPost(String postId) {
+        Post post = getPost(postId);
+        post.setPinned(true);
+        return postRepository.save(post);
+    }
+
+    @Transactional
+    public Post unpinPost(String postId) {
+        Post post = getPost(postId);
+        post.setPinned(false);
+        return postRepository.save(post);
+    }
 }

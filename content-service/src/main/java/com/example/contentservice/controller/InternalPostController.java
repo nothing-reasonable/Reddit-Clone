@@ -56,6 +56,38 @@ public class InternalPostController {
         return ResponseEntity.ok(Map.of("processed", processed, "failed", failed));
     }
 
+    // ── Individual Mod Action Endpoints ────────────────────────────────
+
+    @PatchMapping("/{postId}/approve")
+    public Post approvePost(@PathVariable String postId) {
+        return postService.approvePost(postId);
+    }
+
+    @PatchMapping("/{postId}/remove")
+    public Post removePost(@PathVariable String postId) {
+        return postService.removePostAsMod(postId);
+    }
+
+    @PatchMapping("/{postId}/lock")
+    public Post lockPost(@PathVariable String postId) {
+        return postService.lockPost(postId);
+    }
+
+    @PatchMapping("/{postId}/unlock")
+    public Post unlockPost(@PathVariable String postId) {
+        return postService.unlockPost(postId);
+    }
+
+    @PatchMapping("/{postId}/pin")
+    public Post pinPost(@PathVariable String postId) {
+        return postService.pinPost(postId);
+    }
+
+    @PatchMapping("/{postId}/unpin")
+    public Post unpinPost(@PathVariable String postId) {
+        return postService.unpinPost(postId);
+    }
+
     @Data
     public static class ModQueueActionRequest {
         private List<String> ids;
