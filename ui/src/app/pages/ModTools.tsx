@@ -4,7 +4,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { getSubredditByName } from '../services/subredditApi';
 import { getSubredditPosts } from '../services/contentApi';
-import type { BannedUser, ModLogEntry, ModMail, Post, Subreddit } from '../types/domain';
+import type { BannedUser, ModLogEntry, Post, Subreddit } from '../types/domain';
 import {
   Shield, Flag, Settings, Users, FileText, Mail,
   BarChart3, Gavel, Lock, Pin, UserX, Eye,
@@ -25,7 +25,6 @@ export default function ModTools() {
   const comments: Array<{ id: string; postId: string; flagged?: boolean; removed?: boolean }> = [];
   const modLogs: ModLogEntry[] = [];
   const bannedUsers: BannedUser[] = [];
-  const modMails: ModMail[] = [];
 
   useEffect(() => {
     if (!subreddit) return;
@@ -91,8 +90,6 @@ export default function ModTools() {
   const queueCount = flaggedPosts.length + flaggedComments.length;
   const subModLogs = modLogs.filter((l) => l.subreddit === subreddit);
   const subBanned = bannedUsers.filter((b) => b.subreddit === subreddit);
-  const subMails = modMails.filter((m) => m.subreddit === subreddit);
-  const unreadMails = subMails.filter((m) => !m.read).length;
 
   const isActive = (path: string) => location.pathname.includes(path);
 
@@ -120,14 +117,6 @@ export default function ModTools() {
       badge: subBanned.length,
       badgeColor: 'bg-orange-500',
       description: 'Manage banned users',
-    },
-    {
-      label: 'Mod Mail',
-      icon: Mail,
-      path: `/r/${subreddit}/mod/mail`,
-      badge: unreadMails > 0 ? unreadMails : undefined,
-      badgeColor: 'bg-blue-500',
-      description: 'Messages from users',
     },
     {
       label: 'AutoMod',
