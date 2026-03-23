@@ -224,7 +224,7 @@ export default function Layout() {
 
                 {/* Inbox - User Messages */}
                 <Link
-                  to="/inbox"
+                  to="/messages"
                   className="p-2 hover:bg-gray-100 rounded-full relative"
                   title="Messages"
                 >
@@ -285,7 +285,7 @@ export default function Layout() {
                         Profile
                       </Link>
                       <Link
-                        to="/inbox"
+                        to="/messages"
                         className="flex items-center gap-3 px-4 py-2 hover:bg-gray-100 text-sm"
                         onClick={() => setShowUserMenu(false)}
                       >

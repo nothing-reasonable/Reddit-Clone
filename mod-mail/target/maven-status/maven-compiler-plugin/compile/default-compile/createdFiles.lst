@@ -1,0 +1,17 @@
+com/example/modmailservice/config/RestClientConfig.class
+com/example/modmailservice/repository/ConversationRepository.class
+com/example/modmailservice/model/Message.class
+com/example/modmailservice/model/Conversation.class
+com/example/modmailservice/model/ConversationStatus.class
+com/example/modmailservice/security/JwtUtil.class
+com/example/modmailservice/dto/CreateConversationRequest.class
+com/example/modmailservice/dto/ConversationDto.class
+com/example/modmailservice/dto/SendMessageRequest.class
+com/example/modmailservice/security/SecurityConfig.class
+com/example/modmailservice/security/CorsConfig.class
+com/example/modmailservice/repository/MessageRepository.class
+com/example/modmailservice/auth/AuthorizationException.class
+com/example/modmailservice/security/JwtAuthenticationFilter.class
+com/example/modmailservice/exception/GlobalExceptionHandler.class
+com/example/modmailservice/dto/MessageDto.class
+com/example/modmailservice/client/SubredditMemberDto.class

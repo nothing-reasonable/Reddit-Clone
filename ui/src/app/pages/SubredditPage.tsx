@@ -345,9 +345,7 @@ export default function SubredditPage() {
                     <Link to={`/r/${subreddit}/mod/banned`} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-sm" onClick={() => setShowModTools(false)}>
                       <UserX className="w-4 h-4 text-orange-500" /> Banned Users
                     </Link>
-                    <Link to={`/r/${subreddit}/mod/mail`} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-sm" onClick={() => setShowModTools(false)}>
-                      <Mail className="w-4 h-4 text-blue-500" /> Mod Mail
-                    </Link>
+
                     <Link to={`/r/${subreddit}/automod`} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-sm" onClick={() => setShowModTools(false)}>
                       <Settings className="w-4 h-4" /> AutoMod
                     </Link>
@@ -556,10 +554,7 @@ export default function SubredditPage() {
                   Mod Shortcuts
                 </div>
                 <div className="space-y-1">
-                  <Link to={`/r/${subreddit}/mod/mail`} className="flex items-center gap-2 text-xs text-blue-500 hover:underline">
-                    <Mail className="w-3.5 h-3.5" />
-                    Mod Mail
-                  </Link>
+
                   <Link to={`/r/${subreddit}/modqueue`} className="flex items-center gap-2 text-xs text-blue-500 hover:underline">
                     <Flag className="w-3.5 h-3.5" />
                     Mod Queue
