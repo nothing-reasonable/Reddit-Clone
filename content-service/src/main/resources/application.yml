@@ -5,7 +5,7 @@ spring:
   application:
     name: content-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/contentdb
+    url: jdbc:postgresql://localhost:5434/contentdb
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver
