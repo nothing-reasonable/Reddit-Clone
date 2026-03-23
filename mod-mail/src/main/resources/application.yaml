@@ -5,9 +5,9 @@ spring:
   application:
     name: mod-mail-service
   datasource:
-    url: jdbc:postgresql://localhost:5432/modmaildb
-    username: almaksud
-    password:
+    url: jdbc:postgresql://localhost:5435/modmaildb
+    username: postgres
+    password: postgres
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
