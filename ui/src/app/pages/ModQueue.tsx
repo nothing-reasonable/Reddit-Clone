@@ -3,8 +3,9 @@ import { useParams, useNavigate, Link } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { getSubredditByName } from '../services/subredditApi';
-import { getSubredditPosts } from '../services/contentApi';
-import type { Comment, Post, Subreddit } from '../types/domain';
+import { getModQueue, approveModItem, removeModItem } from '../services/moderationApi';
+import type { ModQueueItem } from '../services/moderationApi';
+import type { Subreddit } from '../types/domain';
 import { Flag, CheckCircle, XCircle, Eye, Square, CheckSquare, Trash2, ShieldCheck, Users } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -12,29 +13,29 @@ const REPORTED_USERS: Array<{ username: string; reason: string; reportCount: num
 
 export default function ModQueue() {
   const { subreddit } = useParams<{ subreddit: string }>();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
   const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [queueItems, setQueueItems] = useState<ModQueueItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (!subreddit) return;
+    if (!subreddit || !token) return;
 
     let isMounted = true;
     setIsLoading(true);
 
-    Promise.all([getSubredditByName(subreddit), getSubredditPosts(subreddit)])
-      .then(([subredditRecord, subredditPosts]) => {
+    Promise.all([getSubredditByName(subreddit), getModQueue(token, subreddit)])
+      .then(([subredditRecord, items]) => {
         if (!isMounted) return;
         setSubredditData(subredditRecord);
-        setPosts(subredditPosts);
+        setQueueItems(items);
       })
       .catch(() => {
         if (!isMounted) return;
         setSubredditData(null);
-        setPosts([]);
+        setQueueItems([]);
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);
@@ -43,20 +44,12 @@ export default function ModQueue() {
     return () => {
       isMounted = false;
     };
-  }, [subreddit]);
+  }, [subreddit, token]);
 
   const isModerator = isSubredditModerator(subreddit || '') || (user?.isModerator && subredditData?.moderators.includes(user.username));
 
   const [filter, setFilter] = useState<'all' | 'posts' | 'comments' | 'users'>('all');
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
-  const comments: Comment[] = [];
-
-  const flaggedPosts = posts.filter((p) => p.subreddit === subreddit && p.flagged && !p.removed);
-  const flaggedComments = comments.filter((c) => {
-    const post = posts.find((p) => p.id === c.postId);
-    return post?.subreddit === subreddit && c.flagged && !c.removed;
-  });
-
   const [removedItems, setRemovedItems] = useState<Set<string>>(new Set());
   const [approvedItems, setApprovedItems] = useState<Set<string>>(new Set());
 
@@ -85,16 +78,28 @@ export default function ModQueue() {
     );
   }
 
-  const handleApprove = (itemId: string, type: 'post' | 'comment') => {
-    setApprovedItems(new Set(approvedItems).add(itemId));
-    setSelectedItems((prev) => { const n = new Set(prev); n.delete(itemId); return n; });
-    toast.success(`${type === 'post' ? 'Post' : 'Comment'} approved`);
+  const handleApprove = async (itemId: string) => {
+    if (!token || !subreddit) return;
+    try {
+      await approveModItem(token, subreddit, itemId);
+      setApprovedItems(new Set(approvedItems).add(itemId));
+      setSelectedItems((prev) => { const n = new Set(prev); n.delete(itemId); return n; });
+      toast.success('Post approved');
+    } catch {
+      toast.error('Failed to approve post');
+    }
   };
 
-  const handleRemove = (itemId: string, type: 'post' | 'comment') => {
-    setRemovedItems(new Set(removedItems).add(itemId));
-    setSelectedItems((prev) => { const n = new Set(prev); n.delete(itemId); return n; });
-    toast.success(`${type === 'post' ? 'Post' : 'Comment'} removed`);
+  const handleRemove = async (itemId: string) => {
+    if (!token || !subreddit) return;
+    try {
+      await removeModItem(token, subreddit, itemId);
+      setRemovedItems(new Set(removedItems).add(itemId));
+      setSelectedItems((prev) => { const n = new Set(prev); n.delete(itemId); return n; });
+      toast.success('Post removed');
+    } catch {
+      toast.error('Failed to remove post');
+    }
   };
 
   const toggleSelect = (itemId: string) => {
@@ -106,52 +111,50 @@ export default function ModQueue() {
     });
   };
 
-  const visiblePosts = flaggedPosts.filter(
-    (p) => !removedItems.has(p.id) && !approvedItems.has(p.id)
-  );
-  const visibleComments = flaggedComments.filter(
-    (c) => !removedItems.has(c.id) && !approvedItems.has(c.id)
+  const visibleItems = queueItems.filter(
+    (item) => !removedItems.has(item.id) && !approvedItems.has(item.id)
   );
 
-  const allVisibleIds = [
-    ...(filter === 'all' || filter === 'posts' ? visiblePosts.map((p) => p.id) : []),
-    ...(filter === 'all' || filter === 'comments' ? visibleComments.map((c) => c.id) : []),
-  ];
+  const allVisibleIds = filter === 'all' || filter === 'posts' ? visibleItems.map((i) => i.id) : [];
 
   const selectAll = () => {
     if (selectedItems.size === allVisibleIds.length) setSelectedItems(new Set());
     else setSelectedItems(new Set(allVisibleIds));
   };
 
-  const handleBulkApprove = () => {
+  const handleBulkApprove = async () => {
+    if (!token || !subreddit) return;
+    const ids = Array.from(selectedItems);
+    await Promise.allSettled(ids.map((id) => approveModItem(token, subreddit, id)));
     const newApproved = new Set(approvedItems);
-    selectedItems.forEach((id) => newApproved.add(id));
+    ids.forEach((id) => newApproved.add(id));
     setApprovedItems(newApproved);
-    toast.success(`${selectedItems.size} items approved`);
+    toast.success(`${ids.length} items approved`);
     setSelectedItems(new Set());
   };
 
-  const handleBulkRemove = () => {
+  const handleBulkRemove = async () => {
+    if (!token || !subreddit) return;
+    const ids = Array.from(selectedItems);
+    await Promise.allSettled(ids.map((id) => removeModItem(token, subreddit, id)));
     const newRemoved = new Set(removedItems);
-    selectedItems.forEach((id) => newRemoved.add(id));
+    ids.forEach((id) => newRemoved.add(id));
     setRemovedItems(newRemoved);
-    toast.success(`${selectedItems.size} items removed`);
+    toast.success(`${ids.length} items removed`);
     setSelectedItems(new Set());
   };
 
   const totalItems =
-    filter === 'all'
-      ? visiblePosts.length + visibleComments.length
-      : filter === 'posts'
-      ? visiblePosts.length
+    filter === 'all' || filter === 'posts'
+      ? visibleItems.length
       : filter === 'comments'
-      ? visibleComments.length
+      ? 0
       : REPORTED_USERS.length;
 
   const tabs = [
-    { id: 'all' as const, label: 'All', count: visiblePosts.length + visibleComments.length },
-    { id: 'posts' as const, label: 'Posts', count: visiblePosts.length },
-    { id: 'comments' as const, label: 'Comments', count: visibleComments.length },
+    { id: 'all' as const, label: 'All', count: visibleItems.length },
+    { id: 'posts' as const, label: 'Posts', count: visibleItems.length },
+    { id: 'comments' as const, label: 'Comments', count: 0 },
     { id: 'users' as const, label: 'Users', count: REPORTED_USERS.length },
   ];
 
@@ -164,7 +167,7 @@ export default function ModQueue() {
               <Flag className="w-6 h-6 text-red-500" />
               Moderation Queue - r/{subreddit}
             </h1>
-            <p className="text-gray-600">Review flagged content from AutoMod</p>
+            <p className="text-gray-600">Review reported content</p>
           </div>
           <div className="flex gap-2">
             <Link
@@ -251,7 +254,6 @@ export default function ModQueue() {
       {/* Queue Items */}
       <div className="space-y-4">
         {filter === 'users' ? (
-          // Users tab
           REPORTED_USERS.length === 0 ? (
             <div className="bg-white border border-gray-300 rounded p-8 text-center">
               <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
@@ -300,120 +302,67 @@ export default function ModQueue() {
           <div className="bg-white border border-gray-300 rounded p-8 text-center">
             <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
             <h2 className="text-xl font-bold mb-2">All Clear!</h2>
-            <p className="text-gray-600">No flagged items in the queue.</p>
+            <p className="text-gray-600">No reported items in the queue.</p>
           </div>
         ) : (
-          <>
-            {/* Flagged Posts */}
-            {(filter === 'all' || filter === 'posts') &&
-              visiblePosts.map((post) => (
-                <div key={post.id} className="bg-white border-2 border-red-300 rounded p-4">
-                  <div className="flex items-start gap-3">
-                    {/* Checkbox */}
-                    <button onClick={() => toggleSelect(post.id)} className="mt-1 shrink-0">
-                      {selectedItems.has(post.id) ? (
-                        <CheckSquare className="w-5 h-5 text-blue-500" />
-                      ) : (
-                        <Square className="w-5 h-5 text-gray-300 hover:text-gray-400" />
-                      )}
-                    </button>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Flag className="w-4 h-4 text-red-500" />
-                        <span className="font-bold text-red-500">FLAGGED POST</span>
+          visibleItems.map((item) => (
+            <div key={item.id} className="bg-white border-2 border-red-300 rounded p-4">
+              <div className="flex items-start gap-3">
+                {/* Checkbox */}
+                <button onClick={() => toggleSelect(item.id)} className="mt-1 shrink-0">
+                  {selectedItems.has(item.id) ? (
+                    <CheckSquare className="w-5 h-5 text-blue-500" />
+                  ) : (
+                    <Square className="w-5 h-5 text-gray-300 hover:text-gray-400" />
+                  )}
+                </button>
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Flag className="w-4 h-4 text-red-500" />
+                    <span className="font-bold text-red-500">REPORTED POST</span>
+                    <span className="text-gray-600">&#8226;</span>
+                    <span className="text-sm text-gray-600">by u/{item.author}</span>
+                    {item.reportCount > 0 && (
+                      <>
                         <span className="text-gray-600">&#8226;</span>
-                        <span className="text-sm text-gray-600">by u/{post.author}</span>
-                      </div>
-                      <h3 className="font-bold text-lg mb-1">{post.title}</h3>
-                      <p className="text-sm text-gray-700 mb-2 line-clamp-2">{post.content}</p>
-                      <div className="inline-block px-3 py-1 bg-red-100 text-red-700 text-sm rounded-full">
-                        Reason: {post.flagReason}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Link
-                        to={`/r/${post.subreddit}/comments/${post.id}`}
-                        className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50"
-                      >
-                        <Eye className="w-4 h-4" />
-                        View
-                      </Link>
-                      <button
-                        onClick={() => handleApprove(post.id, 'post')}
-                        className="flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white rounded text-sm hover:bg-green-600"
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                        Approve
-                      </button>
-                      <button
-                        onClick={() => handleRemove(post.id, 'post')}
-                        className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white rounded text-sm hover:bg-red-600"
-                      >
-                        <XCircle className="w-4 h-4" />
-                        Remove
-                      </button>
-                    </div>
+                        <span className="text-sm text-gray-600">{item.reportCount} report{item.reportCount !== 1 ? 's' : ''}</span>
+                      </>
+                    )}
                   </div>
+                  <h3 className="font-bold text-lg mb-1">{item.contentTitle}</h3>
+                  <p className="text-sm text-gray-700 mb-2 line-clamp-2">{item.contentBody}</p>
+                  {item.flagReason && (
+                    <div className="inline-block px-3 py-1 bg-red-100 text-red-700 text-sm rounded-full">
+                      Reason: {item.flagReason}
+                    </div>
+                  )}
                 </div>
-              ))}
-
-            {/* Flagged Comments */}
-            {(filter === 'all' || filter === 'comments') &&
-              visibleComments.map((comment) => {
-                const post = posts.find((p) => p.id === comment.postId);
-                return (
-                  <div key={comment.id} className="bg-white border-2 border-red-300 rounded p-4">
-                    <div className="flex items-start gap-3">
-                      {/* Checkbox */}
-                      <button onClick={() => toggleSelect(comment.id)} className="mt-1 shrink-0">
-                        {selectedItems.has(comment.id) ? (
-                          <CheckSquare className="w-5 h-5 text-blue-500" />
-                        ) : (
-                          <Square className="w-5 h-5 text-gray-300 hover:text-gray-400" />
-                        )}
-                      </button>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Flag className="w-4 h-4 text-red-500" />
-                          <span className="font-bold text-red-500">FLAGGED COMMENT</span>
-                          <span className="text-gray-600">&#8226;</span>
-                          <span className="text-sm text-gray-600">by u/{comment.author}</span>
-                          <span className="text-gray-600">&#8226;</span>
-                          <span className="text-sm text-gray-600">on "{post?.title}"</span>
-                        </div>
-                        <p className="text-sm text-gray-700 mb-2">{comment.content}</p>
-                        <div className="inline-block px-3 py-1 bg-red-100 text-red-700 text-sm rounded-full">
-                          Reason: {comment.flagReason}
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-2">
-                        <Link
-                          to={`/r/${post?.subreddit}/comments/${post?.id}`}
-                          className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50"
-                        >
-                          <Eye className="w-4 h-4" />
-                          View
-                        </Link>
-                        <button
-                          onClick={() => handleApprove(comment.id, 'comment')}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white rounded text-sm hover:bg-green-600"
-                        >
-                          <CheckCircle className="w-4 h-4" />
-                          Approve
-                        </button>
-                        <button
-                          onClick={() => handleRemove(comment.id, 'comment')}
-                          className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white rounded text-sm hover:bg-red-600"
-                        >
-                          <XCircle className="w-4 h-4" />
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-          </>
+                <div className="flex flex-col gap-2">
+                  <Link
+                    to={`/r/${subreddit}/comments/${item.id}`}
+                    className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50"
+                  >
+                    <Eye className="w-4 h-4" />
+                    View
+                  </Link>
+                  <button
+                    onClick={() => handleApprove(item.id)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-green-500 text-white rounded text-sm hover:bg-green-600"
+                  >
+                    <CheckCircle className="w-4 h-4" />
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => handleRemove(item.id)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-red-500 text-white rounded text-sm hover:bg-red-600"
+                  >
+                    <XCircle className="w-4 h-4" />
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
         )}
       </div>
     </div>

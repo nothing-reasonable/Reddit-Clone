@@ -2,11 +2,15 @@ package com.example.moderationservice.controller;
 
 import com.example.moderationservice.auth.ModeratorAuthService;
 import com.example.moderationservice.dto.ModActionResponse;
+import com.example.moderationservice.dto.ModLogEntry;
 import com.example.moderationservice.service.ModActionService;
+import com.example.moderationservice.service.ModLogStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/r/{subreddit}/mod-actions")
@@ -15,6 +19,15 @@ public class ModActionController {
 
     private final ModActionService modActionService;
     private final ModeratorAuthService moderatorAuthService;
+    private final ModLogStore modLogStore;
+
+    @GetMapping("/log")
+    public ResponseEntity<List<ModLogEntry>> getModLog(
+            @PathVariable String subreddit,
+            Authentication authentication) {
+        moderatorAuthService.requireModerator(subreddit, authentication.getName());
+        return ResponseEntity.ok(modLogStore.getBySubreddit(subreddit));
+    }
 
     @PostMapping("/{postId}/approve")
     public ResponseEntity<ModActionResponse> approvePost(
@@ -22,7 +35,7 @@ public class ModActionController {
             @PathVariable String postId,
             Authentication authentication) {
         moderatorAuthService.requireModerator(subreddit, authentication.getName());
-        return ResponseEntity.ok(modActionService.executeAction(postId, "approve", authentication.getName()));
+        return ResponseEntity.ok(modActionService.executeAction(postId, "approve", authentication.getName(), subreddit));
     }
 
     @PostMapping("/{postId}/remove")
@@ -31,7 +44,7 @@ public class ModActionController {
             @PathVariable String postId,
             Authentication authentication) {
         moderatorAuthService.requireModerator(subreddit, authentication.getName());
-        return ResponseEntity.ok(modActionService.executeAction(postId, "remove", authentication.getName()));
+        return ResponseEntity.ok(modActionService.executeAction(postId, "remove", authentication.getName(), subreddit));
     }
 
     @PostMapping("/{postId}/lock")
@@ -40,7 +53,7 @@ public class ModActionController {
             @PathVariable String postId,
             Authentication authentication) {
         moderatorAuthService.requireModerator(subreddit, authentication.getName());
-        return ResponseEntity.ok(modActionService.executeAction(postId, "lock", authentication.getName()));
+        return ResponseEntity.ok(modActionService.executeAction(postId, "lock", authentication.getName(), subreddit));
     }
 
     @PostMapping("/{postId}/unlock")
@@ -49,7 +62,7 @@ public class ModActionController {
             @PathVariable String postId,
             Authentication authentication) {
         moderatorAuthService.requireModerator(subreddit, authentication.getName());
-        return ResponseEntity.ok(modActionService.executeAction(postId, "unlock", authentication.getName()));
+        return ResponseEntity.ok(modActionService.executeAction(postId, "unlock", authentication.getName(), subreddit));
     }
 
     @PostMapping("/{postId}/pin")
@@ -58,7 +71,7 @@ public class ModActionController {
             @PathVariable String postId,
             Authentication authentication) {
         moderatorAuthService.requireModerator(subreddit, authentication.getName());
-        return ResponseEntity.ok(modActionService.executeAction(postId, "pin", authentication.getName()));
+        return ResponseEntity.ok(modActionService.executeAction(postId, "pin", authentication.getName(), subreddit));
     }
 
     @PostMapping("/{postId}/unpin")
@@ -67,6 +80,6 @@ public class ModActionController {
             @PathVariable String postId,
             Authentication authentication) {
         moderatorAuthService.requireModerator(subreddit, authentication.getName());
-        return ResponseEntity.ok(modActionService.executeAction(postId, "unpin", authentication.getName()));
+        return ResponseEntity.ok(modActionService.executeAction(postId, "unpin", authentication.getName(), subreddit));
     }
 }
