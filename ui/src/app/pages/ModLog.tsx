@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { getSubredditByName } from '../services/subredditApi';
+import { getModLog } from '../services/moderationApi';
 import type { ModLogEntry, Subreddit } from '../types/domain';
 import { FileText, Shield, Gavel, UserX, Eye, Lock, Pin, Tag, BookOpen, ArrowLeft, Filter } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
@@ -21,6 +22,7 @@ const actionLabels: Record<string, string> = {
   update_rules: 'Updated Rules',
 };
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const actionIcons: Record<string, any> = {
   remove_post: Gavel,
   remove_comment: Gavel,
@@ -51,14 +53,13 @@ const actionColors: Record<string, string> = {
 
 export default function ModLog() {
   const { subreddit } = useParams<{ subreddit: string }>();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
   const [filterAction, setFilterAction] = useState<string>('all');
   const [filterMod, setFilterMod] = useState<string>('all');
   const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
-
-  const modLogs: ModLogEntry[] = [];
+  const [modLogs, setModLogs] = useState<ModLogEntry[]>([]);
 
   useEffect(() => {
     if (!subreddit) return;
@@ -66,6 +67,13 @@ export default function ModLog() {
       .then(setSubredditData)
       .catch(() => setSubredditData(null));
   }, [subreddit]);
+
+  useEffect(() => {
+    if (!subreddit || !token) return;
+    getModLog(token, subreddit)
+      .then(setModLogs)
+      .catch(() => setModLogs([]));
+  }, [subreddit, token]);
 
   const isModerator =
     isSubredditModerator(subreddit || '') ||

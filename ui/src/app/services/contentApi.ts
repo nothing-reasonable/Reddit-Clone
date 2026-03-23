@@ -108,6 +108,18 @@ export async function getPostById(postId: string): Promise<Post | null> {
   return mapPost(dto);
 }
 
+export async function reportPost(token: string, postId: string): Promise<void> {
+  const response = await fetch(`${CONTENT_SERVICE_URL}/api/posts/${encodeURIComponent(postId)}/reports`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to report post (${response.status})`);
+  }
+}
+
 export async function createPost(
   token: string,
   subreddit: string,

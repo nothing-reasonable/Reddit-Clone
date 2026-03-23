@@ -3,8 +3,9 @@ import { useParams, Link, useLocation } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { getSubredditByName } from '../services/subredditApi';
-import { getSubredditPosts } from '../services/contentApi';
-import type { BannedUser, ModLogEntry, ModMail, Post, Subreddit } from '../types/domain';
+import { getModQueue, getModLog } from '../services/moderationApi';
+import type { ModQueueItem } from '../services/moderationApi';
+import type { BannedUser, ModLogEntry, Subreddit } from '../types/domain';
 import {
   Shield, Flag, Settings, Users, FileText, Mail,
   BarChart3, Gavel, Lock, Pin, UserX, Eye,
@@ -14,18 +15,16 @@ import { useNavigate } from 'react-router';
 
 export default function ModTools() {
   const { subreddit } = useParams<{ subreddit: string }>();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
   const location = useLocation();
   const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
-  const [posts, setPosts] = useState<Post[]>([]);
+  const [queueItems, setQueueItems] = useState<ModQueueItem[]>([]);
+  const [modLogs, setModLogs] = useState<ModLogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
-  const comments: Array<{ id: string; postId: string; flagged?: boolean; removed?: boolean }> = [];
-  const modLogs: ModLogEntry[] = [];
   const bannedUsers: BannedUser[] = [];
-  const modMails: ModMail[] = [];
 
   useEffect(() => {
     if (!subreddit) return;
@@ -33,16 +32,14 @@ export default function ModTools() {
     let isMounted = true;
     setIsLoading(true);
 
-    Promise.all([getSubredditByName(subreddit), getSubredditPosts(subreddit)])
-      .then(([subredditRecord, subredditPosts]) => {
+    getSubredditByName(subreddit)
+      .then((subredditRecord) => {
         if (!isMounted) return;
         setSubredditData(subredditRecord);
-        setPosts(subredditPosts);
       })
       .catch(() => {
         if (!isMounted) return;
         setSubredditData(null);
-        setPosts([]);
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);
@@ -52,6 +49,12 @@ export default function ModTools() {
       isMounted = false;
     };
   }, [subreddit]);
+
+  useEffect(() => {
+    if (!subreddit || !token) return;
+    getModQueue(token, subreddit).then(setQueueItems).catch(() => setQueueItems([]));
+    getModLog(token, subreddit).then(setModLogs).catch(() => setModLogs([]));
+  }, [subreddit, token]);
 
   if (isLoading) {
     return (
@@ -83,16 +86,9 @@ export default function ModTools() {
     );
   }
 
-  const flaggedPosts = posts.filter((p) => p.subreddit === subreddit && p.flagged && !p.removed);
-  const flaggedComments = comments.filter((c) => {
-    const post = posts.find((p) => p.id === c.postId);
-    return post?.subreddit === subreddit && c.flagged && !c.removed;
-  });
-  const queueCount = flaggedPosts.length + flaggedComments.length;
-  const subModLogs = modLogs.filter((l) => l.subreddit === subreddit);
+  const queueCount = queueItems.length;
+  const subModLogs = modLogs;
   const subBanned = bannedUsers.filter((b) => b.subreddit === subreddit);
-  const subMails = modMails.filter((m) => m.subreddit === subreddit);
-  const unreadMails = subMails.filter((m) => !m.read).length;
 
   const isActive = (path: string) => location.pathname.includes(path);
 
@@ -120,14 +116,6 @@ export default function ModTools() {
       badge: subBanned.length,
       badgeColor: 'bg-orange-500',
       description: 'Manage banned users',
-    },
-    {
-      label: 'Mod Mail',
-      icon: Mail,
-      path: `/r/${subreddit}/mod/mail`,
-      badge: unreadMails > 0 ? unreadMails : undefined,
-      badgeColor: 'bg-blue-500',
-      description: 'Messages from users',
     },
     {
       label: 'AutoMod',

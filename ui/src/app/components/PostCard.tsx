@@ -6,6 +6,8 @@ import type { Post } from '../types/domain';
 import { useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+import { useAuth } from '../contexts/AuthContext';
+import { reportPost } from '../services/contentApi';
 
 const AWARDS_LIST = [
   { type: 'gold', emoji: '🥇', name: 'Gold', cost: 500, description: 'For outstanding content' },
@@ -32,6 +34,12 @@ interface PostCardProps {
 }
 
 export default function PostCard({ post, showSubreddit = true }: PostCardProps) {
+  const { token, user } = useAuth();
+
+  const reportedKey = user ? `reportedPosts_${user.username}` : null;
+  const alreadyReported = reportedKey
+    ? (JSON.parse(localStorage.getItem(reportedKey) ?? '[]') as string[]).includes(post.id)
+    : false;
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [saved, setSaved] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -84,11 +92,21 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
     setShowAwardModal(false);
   };
 
-  const handleReport = () => {
+  const handleReport = async () => {
     if (!reportReason) { toast.error('Please select a reason'); return; }
-    toast.success('Report submitted. Thank you!');
-    setShowReportModal(false);
-    setReportReason('');
+    if (!token) { toast.error('Please log in to report'); return; }
+    try {
+      await reportPost(token, post.id);
+      if (reportedKey) {
+        const reported = JSON.parse(localStorage.getItem(reportedKey) ?? '[]') as string[];
+        localStorage.setItem(reportedKey, JSON.stringify([...reported, post.id]));
+      }
+      toast.success('Report submitted. Thank you!');
+      setShowReportModal(false);
+      setReportReason('');
+    } catch {
+      toast.error('Failed to submit report. Please try again.');
+    }
   };
 
   return (
@@ -209,8 +227,16 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
                 <span className="hidden sm:inline">Award</span>
               </button>
               <button
-                onClick={(e) => { e.preventDefault(); e.stopPropagation(); setShowReportModal(true); }}
-                className="flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-gray-100 rounded text-xs text-gray-500 font-semibold"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (alreadyReported) {
+                    toast.warning('You have already reported this post.');
+                  } else {
+                    setShowReportModal(true);
+                  }
+                }}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-gray-100 rounded text-xs font-semibold ${alreadyReported ? 'text-red-400 cursor-default' : 'text-gray-500'}`}
               >
                 <Flag className="w-4 h-4" />
                 <span className="hidden sm:inline">Report</span>
