@@ -169,6 +169,12 @@ public class PostController {
         return commentService.getReplies(commentId);
     }
 
+    @PostMapping("/posts/{postId}/comments/{commentId}/reports")
+    @ResponseStatus(HttpStatus.CREATED)
+    public void reportComment(@PathVariable String postId, @PathVariable String commentId) {
+        commentService.reportComment(postId, commentId);
+    }
+
     private PaginatedResponse<Post> buildPaginatedResponse(Page<Post> page, int pageNum) {
         Pagination pagination = new Pagination(
                 page.hasNext() ? String.valueOf(pageNum + 1) : null,

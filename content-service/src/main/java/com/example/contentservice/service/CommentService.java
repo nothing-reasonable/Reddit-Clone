@@ -143,6 +143,24 @@ public class CommentService {
                 .toList();
     }
 
+    @Transactional
+    public void reportComment(String postId, String commentId) {
+        Comment comment = commentRepository.findById(commentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Comment not found: " + commentId));
+
+        if (!comment.getPostId().equals(postId)) {
+            throw new IllegalArgumentException("Comment does not belong to this post");
+        }
+
+        if (!comment.isFlagged()) {
+            comment.setFlagged(true);
+            commentRepository.save(comment);
+            log.info("Comment reported: {} on post {}", commentId, postId);
+        } else {
+            log.warn("Comment already flagged: {} on post {}", commentId, postId);
+        }
+    }
+
     private CommentDto mapToDto(Comment comment) {
         return CommentDto.builder()
                 .id(comment.getId())
