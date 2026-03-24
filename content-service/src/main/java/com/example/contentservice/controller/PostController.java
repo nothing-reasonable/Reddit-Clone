@@ -1,11 +1,14 @@
 package com.example.contentservice.controller;
 
+import com.example.contentservice.dto.CommentCreateRequest;
+import com.example.contentservice.dto.CommentDto;
 import com.example.contentservice.dto.PaginatedResponse;
 import com.example.contentservice.dto.Pagination;
 import com.example.contentservice.dto.PostCreateRequest;
 import com.example.contentservice.dto.PostUpdateRequest;
 import com.example.contentservice.dto.VoteRequest;
 import com.example.contentservice.model.Post;
+import com.example.contentservice.service.CommentService;
 import com.example.contentservice.service.ContentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -17,14 +20,18 @@ import org.springframework.web.bind.annotation.*;
 
 import java.security.Principal;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import lombok.extern.slf4j.Slf4j;
 
 @RestController
 @RequestMapping("/api")
 @RequiredArgsConstructor
+@Slf4j
 public class PostController {
 
     private final ContentService postService;
+    private final CommentService commentService;
 
     @GetMapping("/posts")
     public PaginatedResponse<Post> getGlobalPosts(
@@ -120,6 +127,46 @@ public class PostController {
     @ResponseStatus(HttpStatus.CREATED)
     public void reportPost(@PathVariable String postId) {
         postService.reportPost(postId);
+    }
+
+    // ─── Comment Endpoints ───────────────────────────────────────────────────
+
+    @GetMapping("/posts/{postId}/comments")
+    public PaginatedResponse<CommentDto> getComments(
+            @PathVariable String postId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int limit) {
+        Page<CommentDto> commentPage = commentService.getComments(postId, PageRequest.of(page, limit));
+        Pagination pagination = new Pagination(
+                commentPage.hasNext() ? String.valueOf(page + 1) : null,
+                commentPage.getNumberOfElements(),
+                commentPage.hasNext());
+        return new PaginatedResponse<>(commentPage.getContent(), pagination);
+    }
+
+    @PostMapping("/posts/{postId}/comments")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CommentDto createComment(
+            @PathVariable String postId,
+            @Valid @RequestBody CommentCreateRequest request,
+            Principal principal) {
+        String author = principal != null ? principal.getName() : "anonymous";
+        log.info("POST /api/posts/{}/comments - author: {}, principal: {}", postId, author, principal);
+        return commentService.createComment(postId, author, request);
+    }
+
+    @DeleteMapping("/posts/{postId}/comments/{commentId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteComment(
+            @PathVariable String postId,
+            @PathVariable String commentId,
+            Principal principal) {
+        commentService.deleteComment(postId, commentId, principal.getName());
+    }
+
+    @GetMapping("/posts/{postId}/comments/{commentId}/replies")
+    public List<CommentDto> getCommentReplies(@PathVariable String commentId) {
+        return commentService.getReplies(commentId);
     }
 
     private PaginatedResponse<Post> buildPaginatedResponse(Page<Post> page, int pageNum) {

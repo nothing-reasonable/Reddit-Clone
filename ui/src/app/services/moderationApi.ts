@@ -134,3 +134,83 @@ export async function testCustomRule(
 
   return data as TestPlaygroundResponse;
 }
+
+// ─── AutoMod Rule CRUD ────────────────────────────────────────────────────────
+
+export interface AutoModRuleDto {
+  id: string;
+  subredditName: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  moderatorsExempt: boolean;
+  yamlContent: string;
+  lastEditedBy: string;
+  lastEditedAt: string;
+  createdAt: string;
+}
+
+export async function getAutoModRules(token: string, subreddit: string): Promise<AutoModRuleDto[]> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/v1/r/${encodeURIComponent(subreddit)}/automod/rules`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) throw new Error(`Failed to fetch AutoMod rules (${response.status})`);
+  const data = await response.json() as { data: AutoModRuleDto[] };
+  return data.data ?? [];
+}
+
+export async function createAutoModRule(
+  token: string,
+  subreddit: string,
+  rule: { name: string; enabled: boolean; priority: number; moderatorsExempt: boolean; yamlContent: string }
+): Promise<AutoModRuleDto> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/v1/r/${encodeURIComponent(subreddit)}/automod/rules`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(rule),
+    }
+  );
+  if (!response.ok) throw new Error(`Failed to create AutoMod rule (${response.status})`);
+  return response.json() as Promise<AutoModRuleDto>;
+}
+
+export async function updateAutoModRule(
+  token: string,
+  subreddit: string,
+  ruleId: string,
+  rule: { name: string; enabled: boolean; priority: number; moderatorsExempt: boolean; yamlContent: string }
+): Promise<AutoModRuleDto> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/v1/r/${encodeURIComponent(subreddit)}/automod/rules/${ruleId}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(rule),
+    }
+  );
+  if (!response.ok) throw new Error(`Failed to update AutoMod rule (${response.status})`);
+  return response.json() as Promise<AutoModRuleDto>;
+}
+
+export async function toggleAutoModRule(token: string, subreddit: string, ruleId: string, enabled: boolean): Promise<void> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/v1/r/${encodeURIComponent(subreddit)}/automod/rules/${ruleId}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ enabled }),
+    }
+  );
+  if (!response.ok) throw new Error(`Failed to toggle AutoMod rule (${response.status})`);
+}
+
+export async function deleteAutoModRule(token: string, subreddit: string, ruleId: string): Promise<void> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/v1/r/${encodeURIComponent(subreddit)}/automod/rules/${ruleId}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) throw new Error(`Failed to delete AutoMod rule (${response.status})`);
+}

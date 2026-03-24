@@ -249,6 +249,13 @@ public class SubredditServiceImpl implements SubredditService {
                 .collect(Collectors.toList());
     }
 
+    @Override
+    public boolean isMember(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+        return memberRepository.existsBySubredditIdAndUsername(subreddit.getId(), username);
+    }
+
     // ───── Rules ─────
 
     @Override

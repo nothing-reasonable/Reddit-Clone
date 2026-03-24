@@ -25,10 +25,10 @@ public class InternalPostController {
             @RequestParam String subreddit,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "25") int limit) {
-        
-        // Sorting by reports descending
-        Sort sortOrder = Sort.by(Sort.Direction.DESC, "reports");
-        return postService.getReportedPosts(subreddit, PageRequest.of(page, limit, sortOrder));
+
+        // Return flagged posts (flagged by AutoMod) sorted by creation time descending
+        Sort sortOrder = Sort.by(Sort.Direction.DESC, "createdAt");
+        return postService.getFlaggedPosts(subreddit, PageRequest.of(page, limit, sortOrder));
     }
 
     @PatchMapping("/modqueue-action")

@@ -108,6 +108,15 @@ public class SubredditController {
         return ResponseEntity.ok(subredditService.getMembers(name));
     }
 
+    @GetMapping("/{name}/is-member/{username}")
+    public ResponseEntity<MemberCheckResponse> isMember(
+            @PathVariable String name,
+            @PathVariable String username
+    ) {
+        boolean isMember = subredditService.isMember(name, username);
+        return ResponseEntity.ok(new MemberCheckResponse(isMember));
+    }
+
     // ───── Rules ─────
 
     @PostMapping("/{name}/rules")

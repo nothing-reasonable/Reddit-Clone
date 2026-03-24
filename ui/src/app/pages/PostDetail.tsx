@@ -1,5 +1,5 @@
 import { useParams, Link } from 'react-router';
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ArrowUp, ArrowDown, Share2, Bookmark, BookmarkCheck, Award, MoreHorizontal, Flag, Lock, Trash2, Pin } from 'lucide-react';
 import { formatNumber } from '../utils/format';
 import { getAwardEmoji } from '../utils/awards';
@@ -10,12 +10,15 @@ import { toast } from 'sonner';
 import { getPostById } from '../services/contentApi';
 import { getSubredditByName } from '../services/subredditApi';
 import type { Post } from '../types/domain';
+import CommentComponent, { CommentNode } from '../components/CommentComponent';
+import { getComments, createComment, deleteComment } from '../services/commentApi';
 
 export default function PostDetail() {
   const { postId, subreddit } = useParams<{ postId: string; subreddit: string }>();
-  const { user, isAuthenticated } = useAuth();
+  const { user, token, isAuthenticated } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const [post, setPost] = useState<Post | null>(null);
+  const [comments, setComments] = useState<CommentNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [backendModerators, setBackendModerators] = useState<string[]>([]);
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
@@ -37,18 +40,40 @@ export default function PostDetail() {
       setLoading(true);
 
       try {
-        const [loadedPost, loadedSubreddit] = await Promise.all([
+        const [loadedPost, loadedSubreddit, loadedComments] = await Promise.all([
           getPostById(postId),
           subreddit ? getSubredditByName(subreddit) : Promise.resolve(null),
+          getComments(postId),
         ]);
 
         if (cancelled) return;
         setPost(loadedPost);
         setBackendModerators(loadedSubreddit?.moderators ?? []);
+        
+        const buildTree = (flat: any[]): CommentNode[] => {
+          const map = new Map<string, CommentNode>();
+          const roots: CommentNode[] = [];
+          
+          flat.forEach(c => {
+            map.set(c.id, { ...c, replies: [] });
+          });
+          
+          flat.forEach(c => {
+            if (c.parentId && map.has(c.parentId)) {
+              map.get(c.parentId)!.replies.push(map.get(c.id)!);
+            } else {
+              roots.push(map.get(c.id)!);
+            }
+          });
+          return roots;
+        };
+        
+        setComments(buildTree(loadedComments));
       } catch {
         if (!cancelled) {
           setPost(null);
           setBackendModerators([]);
+          setComments([]);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -93,14 +118,66 @@ export default function PostDetail() {
     setVote(vote === type ? null : type);
   };
 
-  const handleComment = () => {
-    if (!isAuthenticated) { toast.error('Please log in to comment'); return; }
+  const handleComment = async () => {
+    if (!isAuthenticated || !user) { toast.error('Please log in to comment'); return; }
     if (isLocked) { toast.error('This post is locked'); return; }
-    if (commentText.trim()) { toast.success('Comment posted!'); setCommentText(''); }
+    if (!commentText.trim() || !postId) return;
+    try {
+      const newComment = await createComment(token || '', postId, commentText);
+      setComments([{ ...newComment, replies: [] } as unknown as CommentNode, ...comments]);
+      setCommentText('');
+      toast.success('Comment posted!');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to post comment');
+    }
   };
 
-  const handleReply = () => {
-    toast.info('Replies are not available yet.');
+  const handleReply = async (parentId: string, replyContent: string) => {
+    if (!user || !postId) return;
+    try {
+      const newComment = await createComment(token || '', postId, replyContent, parentId);
+      
+      const insertReply = (nodes: CommentNode[]): CommentNode[] => {
+        return nodes.map(node => {
+          if (node.id === parentId) {
+            return { ...node, replies: [...node.replies, { ...newComment, replies: [] } as unknown as CommentNode] };
+          }
+          if (node.replies.length > 0) {
+            return { ...node, replies: insertReply(node.replies) };
+          }
+          return node;
+        });
+      };
+      
+      setComments(insertReply(comments));
+      toast.success('Reply posted!');
+    } catch(e: any) {
+      toast.error(e.message || 'Failed to post reply');
+    }
+  };
+
+  const handleDeleteComment = async (commentId: string) => {
+    if (!user || !postId) return;
+    try {
+      await deleteComment(user.token, postId, commentId);
+      
+      const markDeleted = (nodes: CommentNode[]): CommentNode[] => {
+        return nodes.map(node => {
+          if (node.id === commentId) {
+            return { ...node, removed: true, content: '[deleted]', author: '[deleted]' };
+          }
+          if (node.replies.length > 0) {
+            return { ...node, replies: markDeleted(node.replies) };
+          }
+          return node;
+        });
+      };
+      
+      setComments(markDeleted(comments));
+      toast.success('Comment deleted');
+    } catch (e: any) {
+      toast.error(e.message || 'Failed to delete comment');
+    }
   };
 
   const handleShare = () => {
@@ -117,9 +194,8 @@ export default function PostDetail() {
           <div className="flex flex-col items-center bg-gray-50 px-3 py-4 rounded-l gap-0.5">
             <button
               onClick={() => handleVote('up')}
-              className={`p-1 rounded hover:bg-orange-100 transition-colors ${
-                vote === 'up' ? 'text-orange-500' : 'text-gray-400'
-              }`}
+              className={`p-1 rounded hover:bg-orange-100 transition-colors ${vote === 'up' ? 'text-orange-500' : 'text-gray-400'
+                }`}
             >
               <ArrowUp className="w-6 h-6" fill={vote === 'up' ? 'currentColor' : 'none'} />
             </button>
@@ -128,9 +204,8 @@ export default function PostDetail() {
             </span>
             <button
               onClick={() => handleVote('down')}
-              className={`p-1 rounded hover:bg-blue-100 transition-colors ${
-                vote === 'down' ? 'text-blue-500' : 'text-gray-400'
-              }`}
+              className={`p-1 rounded hover:bg-blue-100 transition-colors ${vote === 'down' ? 'text-blue-500' : 'text-gray-400'
+                }`}
             >
               <ArrowDown className="w-6 h-6" fill={vote === 'down' ? 'currentColor' : 'none'} />
             </button>
@@ -289,7 +364,7 @@ export default function PostDetail() {
           </p>
           <textarea
             value={commentText}
-            onChange={(e) => setCommentText(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setCommentText(e.target.value)}
             placeholder={isAuthenticated ? 'What are your thoughts?' : 'Please log in to comment'}
             disabled={!isAuthenticated}
             className="w-full p-3 border border-gray-300 rounded focus:outline-none focus:border-blue-500 min-h-[80px] disabled:bg-gray-50 text-sm"
@@ -310,17 +385,28 @@ export default function PostDetail() {
       <div className="bg-white border border-gray-300 rounded p-4">
         <div className="flex items-center justify-between mb-4">
           <h2 className="font-bold text-sm">
-            Comments
+            Comments ({post.commentCount || 0})
           </h2>
           <select className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none">
             <option>Best</option>
             <option>Top</option>
             <option>New</option>
-            <option>Controversial</option>
           </select>
         </div>
-        <div className="space-y-3">
-          <p className="text-gray-500 text-center py-8 text-sm">Comments are not available from backend yet.</p>
+        <div className="space-y-1">
+          {comments.length === 0 ? (
+            <p className="text-gray-500 text-center py-8 text-sm">No comments yet. Be the first to share your thoughts!</p>
+          ) : (
+            comments.map((node: CommentNode) => (
+              <CommentComponent 
+                key={node.id} 
+                node={node} 
+                onReply={handleReply} 
+                onDelete={handleDeleteComment} 
+                isModerator={isModerator} 
+              />
+            ))
+          )}
         </div>
       </div>
     </div>
