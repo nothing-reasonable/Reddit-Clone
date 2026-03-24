@@ -349,6 +349,9 @@ export default function SubredditPage() {
                     <Link to={`/r/${subreddit}/automod`} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-sm" onClick={() => setShowModTools(false)}>
                       <Settings className="w-4 h-4" /> AutoMod
                     </Link>
+                    <Link to={`/r/${subreddit}/modmail`} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-sm" onClick={() => setShowModTools(false)}>
+                      <Mail className="w-4 h-4" /> Mod Mail
+                    </Link>
                     <Link to={`/r/${subreddit}/mod/settings`} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-sm" onClick={() => setShowModTools(false)}>
                       <Users className="w-4 h-4" /> Community Settings
                     </Link>
@@ -543,6 +546,15 @@ export default function SubredditPage() {
                   <BookOpen className="w-3.5 h-3.5" />
                   Wiki
                 </Link>
+                {isAuthenticated && (
+                  <Link
+                    to={`/r/${subreddit}/modmail`}
+                    className="flex items-center gap-2 text-xs text-blue-500 hover:underline"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    {isModerator ? 'Mod Mail' : 'Messages'}
+                  </Link>
+                )}
               </div>
             </div>
 
