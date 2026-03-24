@@ -167,47 +167,57 @@ public class AutoModEngine {
             boolean matched = false;
             boolean validCondition = false;
 
-            if (fieldName.equals("title")) {
-                matched = evaluateField(context.getTitle(), entry.getValue(), modifiers, "includes-word");
-                validCondition = true;
-            } else if (fieldName.equals("body")) {
-                matched = evaluateField(context.getBody(), entry.getValue(), modifiers, "includes-word");
-                validCondition = true;
-            } else if (fieldName.equals("domain")) {
-                matched = evaluateField(context.getDomain(), entry.getValue(), modifiers, "includes");
-                validCondition = true;
-            } else if (fieldName.equals("url")) {
-                matched = evaluateField(context.getUrl() != null ? context.getUrl() : context.getDomain(), entry.getValue(), modifiers, "includes");
-                validCondition = true;
-            } else if (fieldName.equals("id")) {
-                matched = evaluateField(context.getId(), entry.getValue(), modifiers, "full-exact");
-                validCondition = true;
-            } else if (fieldName.equals("flair_text")) {
-                matched = evaluateField(context.getFlair(), entry.getValue(), modifiers, "full-exact");
-                validCondition = true;
-            } else if (fieldName.equals("flair_css_class")) {
-                matched = evaluateField(context.getFlairCssClass(), entry.getValue(), modifiers, "full-exact");
-                validCondition = true;
-            } else if (fieldName.equals("author") && entry.getValue() instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> authorBlock = (Map<String, Object>) entry.getValue();
-                matched = evaluateAuthor(authorBlock, context);
-                validCondition = true;
-            } else if (fieldName.equals("body_longer_than")) {
-                matched = evaluateLength(context.getBody(), entry.getValue(), true);
-                validCondition = true;
-            } else if (fieldName.equals("body_shorter_than")) {
-                matched = evaluateLength(context.getBody(), entry.getValue(), false);
-                validCondition = true;
-            } else if (fieldName.equals("reports")) {
-                matched = checkNumericThreshold(entry.getValue(), context.getReports() != null ? context.getReports() : 0);
-                validCondition = true;
-            } else if (fieldName.equals("is_edited")) {
-                matched = evaluateBoolean(context.getIsEdited(), entry.getValue());
-                validCondition = true;
-            } else if (fieldName.equals("is_top_level")) {
-                matched = evaluateBoolean(context.getIsTopLevel(), entry.getValue());
-                validCondition = true;
+            String[] subFields = fieldName.split("\\+");
+            for (String subField : subFields) {
+                subField = subField.trim();
+                boolean subMatched = false;
+
+                if (subField.equals("title")) {
+                    subMatched = evaluateField(context.getTitle(), entry.getValue(), modifiers, "includes-word");
+                    validCondition = true;
+                } else if (subField.equals("body")) {
+                    subMatched = evaluateField(context.getBody(), entry.getValue(), modifiers, "includes-word");
+                    validCondition = true;
+                } else if (subField.equals("domain")) {
+                    subMatched = evaluateField(context.getDomain(), entry.getValue(), modifiers, "includes");
+                    validCondition = true;
+                } else if (subField.equals("url")) {
+                    subMatched = evaluateField(context.getUrl() != null ? context.getUrl() : context.getDomain(), entry.getValue(), modifiers, "includes");
+                    validCondition = true;
+                } else if (subField.equals("id")) {
+                    subMatched = evaluateField(context.getId(), entry.getValue(), modifiers, "full-exact");
+                    validCondition = true;
+                } else if (subField.equals("flair_text")) {
+                    subMatched = evaluateField(context.getFlair(), entry.getValue(), modifiers, "full-exact");
+                    validCondition = true;
+                } else if (subField.equals("flair_css_class")) {
+                    subMatched = evaluateField(context.getFlairCssClass(), entry.getValue(), modifiers, "full-exact");
+                    validCondition = true;
+                } else if (subField.equals("author") && entry.getValue() instanceof Map) {
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> authorBlock = (Map<String, Object>) entry.getValue();
+                    subMatched = evaluateAuthor(authorBlock, context);
+                    validCondition = true;
+                } else if (subField.equals("body_longer_than")) {
+                    subMatched = evaluateLength(context.getBody(), entry.getValue(), true);
+                    validCondition = true;
+                } else if (subField.equals("body_shorter_than")) {
+                    subMatched = evaluateLength(context.getBody(), entry.getValue(), false);
+                    validCondition = true;
+                } else if (subField.equals("reports")) {
+                    subMatched = checkNumericThreshold(entry.getValue(), context.getReports() != null ? context.getReports() : 0);
+                    validCondition = true;
+                } else if (subField.equals("is_edited")) {
+                    subMatched = evaluateBoolean(context.getIsEdited(), entry.getValue());
+                    validCondition = true;
+                } else if (subField.equals("is_top_level")) {
+                    subMatched = evaluateBoolean(context.getIsTopLevel(), entry.getValue());
+                    validCondition = true;
+                }
+
+                if (subMatched) {
+                    matched = true;
+                }
             }
 
             if (validCondition) {
@@ -332,7 +342,7 @@ public class AutoModEngine {
         boolean startsWith = modifiersStr != null && modifiersStr.contains("starts-with");
         boolean endsWith = modifiersStr != null && modifiersStr.contains("ends-with");
         boolean fullText = modifiersStr != null && modifiersStr.contains("full-text");
-        boolean includes = modifiersStr != null && modifiersStr.contains("includes") && !modifiersStr.contains("includes-word");
+        boolean includes = modifiersStr != null && (modifiersStr.contains("includes") || modifiersStr.contains("contains")) && !modifiersStr.contains("includes-word");
         boolean includesWord = modifiersStr != null && modifiersStr.contains("includes-word");
 
         if (!exact && !startsWith && !endsWith && !fullText && !includes && !includesWord && !isRegex) {
@@ -340,6 +350,7 @@ public class AutoModEngine {
             if (def.equals("full-exact")) exact = true;
             else if (def.contains("includes") && !def.equals("includes-word")) includes = true;
             else if (def.equals("includes-word")) includesWord = true;
+            else if (def.contains("contains")) includes = true;
         }
 
         List<?> patterns;

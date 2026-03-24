@@ -10,7 +10,9 @@ import java.time.LocalDateTime;
 @Table(name = "posts", indexes = {
         @Index(name = "idx_post_subreddit", columnList = "subreddit"),
         @Index(name = "idx_post_score", columnList = "score"),
-        @Index(name = "idx_post_created_at", columnList = "created_at")
+        @Index(name = "idx_post_created_at", columnList = "created_at"),
+        @Index(name = "idx_post_removed", columnList = "removed"),
+        @Index(name = "idx_post_subreddit_removed", columnList = "subreddit,removed")
 })
 @Getter
 @Setter

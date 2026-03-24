@@ -56,6 +56,24 @@ services:
     networks:
       - reddit-network
 
+  postgres-moderation:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: moddb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - moddb-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d moddb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reddit-network
+
   postgres-modmail:
     image: postgres:16-alpine
     environment:
@@ -121,6 +139,7 @@ services:
       SPRING_DATASOURCE_USERNAME: postgres
       SPRING_DATASOURCE_PASSWORD: postgres
       SUBREDDIT_SERVICE_URL: http://subreddit-service:8082
+      MODERATION_SERVICE_URL: http://moderation-service:8084
     depends_on:
       postgres-content:
         condition: service_healthy
@@ -137,9 +156,14 @@ services:
     ports:
       - "8084:8084"
     environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-moderation:5432/moddb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
       SERVICES_SUBREDDIT_BASE_URL: http://subreddit-service:8082
       SERVICES_CONTENT_BASE_URL: http://content-service:8083
     depends_on:
+      postgres-moderation:
+        condition: service_healthy
       subreddit-service:
         condition: service_started
       content-service:
@@ -194,6 +218,7 @@ volumes:
   user-db-data:
   subreddit-db-data:
   content-db-data:
+  moddb-data:
   modmail-db-data:
 
 # ─── Networks ─────────────────────────────────────────────────────────────────
