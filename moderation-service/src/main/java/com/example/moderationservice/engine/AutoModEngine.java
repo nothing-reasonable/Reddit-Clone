@@ -413,7 +413,7 @@ public class AutoModEngine {
         boolean startsWith = modifiersStr != null && modifiersStr.contains("starts-with");
         boolean endsWith = modifiersStr != null && modifiersStr.contains("ends-with");
         boolean fullText = modifiersStr != null && modifiersStr.contains("full-text");
-        boolean includes = modifiersStr != null && modifiersStr.contains("includes") && !modifiersStr.contains("includes-word");
+        boolean includes = modifiersStr != null && (modifiersStr.contains("includes") || modifiersStr.contains("contains")) && !modifiersStr.contains("includes-word");
         boolean includesWord = modifiersStr != null && modifiersStr.contains("includes-word");
 
         if (!exact && !startsWith && !endsWith && !fullText && !includes && !includesWord && !isRegex) {
@@ -422,6 +422,7 @@ public class AutoModEngine {
             if (def.equals("full-exact")) exact = true;
             else if (def.contains("includes") && !def.equals("includes-word")) includes = true;
             else if (def.equals("includes-word")) includesWord = true;
+            else if (def.contains("contains")) includes = true;
         }
 
         List<?> patterns;

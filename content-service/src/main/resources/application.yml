@@ -22,3 +22,7 @@ spring:
 subreddit:
   service:
     base-url: ${SUBREDDIT_SERVICE_URL:http://localhost:8082}
+
+services:
+  moderation:
+    base-url: ${MODERATION_SERVICE_URL:http://moderation-service:8084}

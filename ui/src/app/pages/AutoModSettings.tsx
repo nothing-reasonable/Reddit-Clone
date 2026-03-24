@@ -10,7 +10,8 @@ import {
 import { toast } from 'sonner';
 import { formatDistanceToNow, format } from 'date-fns';
 import yaml from 'js-yaml';
-import { testCustomRule } from '../services/moderationApi';
+import { testCustomRule, getAutoModRules, createAutoModRule, updateAutoModRule, toggleAutoModRule, deleteAutoModRule } from '../services/moderationApi';
+import type { AutoModRuleDto } from '../services/moderationApi';
 import { getSubredditByName } from '../services/subredditApi';
 import type { Subreddit } from '../types/domain';
 
@@ -247,6 +248,41 @@ export default function AutoModSettings() {
     );
 
   const [rules, setRules] = useState<RichAutoModRule[]>(() => createSeedRules(subreddit || ''));
+  const [rulesLoading, setRulesLoading] = useState(false);
+
+  // Load rules from backend on mount
+  useEffect(() => {
+    if (!subreddit || !token) return;
+    let cancelled = false;
+    setRulesLoading(true);
+    getAutoModRules(token, subreddit)
+      .then((dtos: AutoModRuleDto[]) => {
+        if (cancelled) return;
+        setRules(dtos.map((dto) => {
+          let parsedAction: ActionType = 'flag';
+          try {
+            const parsed = yaml.load(dto.yamlContent) as Record<string, unknown>;
+            if (parsed) parsedAction = normalizeAction(parsed['action']);
+          } catch { /* ignore invalid yaml */ }
+          return {
+            id: dto.id,
+            name: dto.name,
+            enabled: dto.enabled,
+            conditionField: 'post_title' as const,
+            operator: 'contains' as const,
+            value: '',
+            action: parsedAction,
+            yamlContent: dto.yamlContent,
+            lastEditedBy: dto.lastEditedBy,
+            lastEditedAt: new Date(dto.lastEditedAt),
+            createdAt: new Date(dto.createdAt),
+          };
+        }));
+      })
+      .catch(() => { /* silently ignore — user may not be mod yet */ })
+      .finally(() => { if (!cancelled) setRulesLoading(false); });
+    return () => { cancelled = true; };
+  }, [subreddit, token]);
   const [activeTab, setActiveTab] = useState<'rules' | 'history' | 'test' | 'logs'>('rules');
 
   // Rule editor
@@ -347,14 +383,25 @@ export default function AutoModSettings() {
   // ─── Handlers ──────────────────────────────────────────────────────────────────
 
   const toggleRule = (id: string) => {
-    setRules(rules.map((r) => r.id === id ? { ...r, enabled: !r.enabled, lastEditedBy: user!.username, lastEditedAt: new Date() } : r));
     const rule = rules.find((r) => r.id === id);
-    toast.success(rule?.enabled ? 'Rule disabled' : 'Rule enabled');
+    if (!rule || !token) return;
+    const newEnabled = !rule.enabled;
+    toggleAutoModRule(token, subreddit!, id, newEnabled)
+      .then(() => {
+        setRules(rules.map((r) => r.id === id ? { ...r, enabled: newEnabled, lastEditedBy: user!.username, lastEditedAt: new Date() } : r));
+        toast.success(newEnabled ? 'Rule enabled' : 'Rule disabled');
+      })
+      .catch(() => toast.error('Failed to toggle rule'));
   };
 
   const deleteRule = (id: string) => {
-    setRules(rules.filter((r) => r.id !== id));
-    toast.success('Rule deleted');
+    if (!token) return;
+    deleteAutoModRule(token, subreddit!, id)
+      .then(() => {
+        setRules(rules.filter((r) => r.id !== id));
+        toast.success('Rule deleted');
+      })
+      .catch(() => toast.error('Failed to delete rule'));
   };
 
   const duplicateRule = (id: string) => {
@@ -383,30 +430,57 @@ export default function AutoModSettings() {
   };
 
   const saveRule = () => {
-    if (!editingRule) return;
+    if (!editingRule || !token) return;
     if (!editingRule.name.trim()) { toast.error('Rule name is required'); return; }
     if (!editingRule.yamlContent?.trim()) { toast.error('YAML content is required'); return; }
     try {
       yaml.load(editingRule.yamlContent);
-    } catch {
-      toast.error('YAML is invalid. Please fix syntax before saving.');
+    } catch (err: any) {
+      toast.error(`YAML is invalid: ${err.message || 'Fix syntax before saving'}`);
       return;
     }
 
-    const updated = { ...editingRule, lastEditedBy: user!.username, lastEditedAt: new Date() };
+    const payload = {
+      name: editingRule.name,
+      enabled: editingRule.enabled,
+      priority: 0,
+      moderatorsExempt: false,
+      yamlContent: editingRule.yamlContent,
+    };
 
     if (editingRule.id) {
-      // Editing existing
-      setRules(rules.map((r) => r.id === editingRule.id ? updated : r));
-      toast.success('Rule updated');
+      // Update existing rule
+      updateAutoModRule(token, subreddit!, editingRule.id, payload)
+        .then((dto) => {
+          setRules(rules.map((r) => r.id === dto.id ? { ...r, ...payload, lastEditedBy: dto.lastEditedBy, lastEditedAt: new Date(dto.lastEditedAt) } : r));
+          toast.success('Rule updated');
+          setShowEditor(false);
+          setEditingRule(null);
+        })
+        .catch(() => toast.error('Failed to update rule'));
     } else {
-      // New rule
-      updated.id = 'rich-' + Math.random().toString(36).substr(2, 9);
-      setRules([...rules, updated]);
-      toast.success('Rule created');
+      // Create new rule
+      createAutoModRule(token, subreddit!, payload)
+        .then((dto) => {
+          setRules([...rules, {
+            id: dto.id,
+            name: dto.name,
+            enabled: dto.enabled,
+            conditionField: 'post_title' as const,
+            operator: 'contains' as const,
+            value: '',
+            action: 'flag' as const,
+            yamlContent: dto.yamlContent,
+            lastEditedBy: dto.lastEditedBy,
+            lastEditedAt: new Date(dto.lastEditedAt),
+            createdAt: new Date(dto.createdAt),
+          }]);
+          toast.success('Rule created');
+          setShowEditor(false);
+          setEditingRule(null);
+        })
+        .catch(() => toast.error('Failed to create rule'));
     }
-    setShowEditor(false);
-    setEditingRule(null);
   };
 
   // ─── Test Engine (Backend API) ─────────────────────────────────────────────────

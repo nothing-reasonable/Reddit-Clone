@@ -1,0 +1,228 @@
+services:
+
+  # ─── Databases ──────────────────────────────────────────────────────────────
+
+  postgres-user:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: userdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - user-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d userdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reddit-network
+
+  postgres-subreddit:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: subredditdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    volumes:
+      - subreddit-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d subredditdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reddit-network
+
+  postgres-content:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: contentdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    volumes:
+      - content-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d contentdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reddit-network
+
+  postgres-moderation:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: moddb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5436:5432"
+    volumes:
+      - moddb-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d moddb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reddit-network
+
+  postgres-modmail:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: modmaildb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5435:5432"
+    volumes:
+      - modmail-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d modmaildb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - reddit-network
+
+  # ─── Backend Services ────────────────────────────────────────────────────────
+
+  user-service:
+    build:
+      context: ./user-service
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-user:5432/userdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    depends_on:
+      postgres-user:
+        condition: service_healthy
+    networks:
+      - reddit-network
+    restart: on-failure
+
+  subreddit-service:
+    build:
+      context: ./subreddit-service
+      dockerfile: Dockerfile
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-subreddit:5432/subredditdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+    depends_on:
+      postgres-subreddit:
+        condition: service_healthy
+    networks:
+      - reddit-network
+    restart: on-failure
+
+  content-service:
+    build:
+      context: ./content-service
+      dockerfile: Dockerfile
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-content:5432/contentdb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SUBREDDIT_SERVICE_URL: http://subreddit-service:8082
+      MODERATION_SERVICE_URL: http://moderation-service:8084
+    depends_on:
+      postgres-content:
+        condition: service_healthy
+      subreddit-service:
+        condition: service_started
+    networks:
+      - reddit-network
+    restart: on-failure
+
+  moderation-service:
+    build:
+      context: ./moderation-service
+      dockerfile: Dockerfile
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-moderation:5432/moddb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SERVICES_SUBREDDIT_BASE_URL: http://subreddit-service:8082
+      SERVICES_CONTENT_BASE_URL: http://content-service:8083
+    depends_on:
+      postgres-moderation:
+        condition: service_healthy
+      subreddit-service:
+        condition: service_started
+      content-service:
+        condition: service_started
+    networks:
+      - reddit-network
+    restart: on-failure
+
+  mod-mail-service:
+    build:
+      context: ./mod-mail
+      dockerfile: Dockerfile
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-modmail:5432/modmaildb
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SERVICES_SUBREDDIT_BASE_URL: http://subreddit-service:8082
+      SERVICES_USER_BASE_URL: http://user-service:8081
+    depends_on:
+      postgres-modmail:
+        condition: service_healthy
+      user-service:
+        condition: service_started
+      subreddit-service:
+        condition: service_started
+    networks:
+      - reddit-network
+    restart: on-failure
+
+  # ─── Frontend ────────────────────────────────────────────────────────────────
+
+  ui:
+    build:
+      context: ./ui
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - user-service
+      - subreddit-service
+      - content-service
+      - moderation-service
+      - mod-mail-service
+    networks:
+      - reddit-network
+
+# ─── Volumes ──────────────────────────────────────────────────────────────────
+
+volumes:
+  user-db-data:
+  subreddit-db-data:
+  content-db-data:
+  moddb-data:
+  modmail-db-data:
+
+# ─── Networks ─────────────────────────────────────────────────────────────────
+
+networks:
+  reddit-network:
+    driver: bridge

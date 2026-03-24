@@ -43,6 +43,9 @@ content-service/target/
 # Java / Maven / Spring Boot (media-service)
 media-service/target/
 *.class
+# Java / Maven / Spring Boot (modmail-service)
+mod-mail/target
+*.class
 
 # Mobile Tools for Java (J2ME)
 .mtj.tmp/
