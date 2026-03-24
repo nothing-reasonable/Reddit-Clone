@@ -42,6 +42,11 @@ public class CommentService {
                     return new ResourceNotFoundException("Post not found: " + postId);
                 });
 
+        // Reject comments on locked posts
+        if (post.isLocked()) {
+            throw new UnauthorizedActionException("Post is locked. New comments are not allowed.");
+        }
+
         // Verify user is a member of the subreddit
         log.info("Checking if user {} is a member of r/{}", author, post.getSubreddit());
         boolean isMember = subredditClient.isMember(post.getSubreddit(), author);
