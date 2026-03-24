@@ -5,4 +5,5 @@ import java.util.List;
 
 public interface AutoModRuleRepository extends JpaRepository<AutoModRule, String> {
     List<AutoModRule> findBySubredditNameOrderByPriorityAsc(String subredditName);
+    java.util.Optional<AutoModRule> findByIdAndSubredditName(String id, String subredditName);
 }

@@ -2,15 +2,11 @@ package com.example.moderationservice.controller;
 
 import com.example.moderationservice.auth.ModeratorAuthService;
 import com.example.moderationservice.dto.ModActionResponse;
-import com.example.moderationservice.dto.ModLogEntry;
 import com.example.moderationservice.service.ModActionService;
-import com.example.moderationservice.service.ModLogStore;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/r/{subreddit}/mod-actions")
@@ -19,15 +15,6 @@ public class ModActionController {
 
     private final ModActionService modActionService;
     private final ModeratorAuthService moderatorAuthService;
-    private final ModLogStore modLogStore;
-
-    @GetMapping("/log")
-    public ResponseEntity<List<ModLogEntry>> getModLog(
-            @PathVariable String subreddit,
-            Authentication authentication) {
-        moderatorAuthService.requireModerator(subreddit, authentication.getName());
-        return ResponseEntity.ok(modLogStore.getBySubreddit(subreddit));
-    }
 
     @PostMapping("/{postId}/approve")
     public ResponseEntity<ModActionResponse> approvePost(
