@@ -48,8 +48,60 @@ public class SubredditClient {
         }
     }
 
+    /**
+     * Check if a user is a moderator of the given subreddit.
+     * Returns false if the check fails (non-fatal).
+     */
+    public boolean isModerator(String subredditName, String username) {
+        try {
+            ModeratorCheckResponse response = restClient.get()
+                    .uri("/api/subreddits/{name}/is-moderator/{username}", subredditName, username)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, response2) -> {})
+                    .body(ModeratorCheckResponse.class);
+            return response != null && Boolean.TRUE.equals(response.getModerator());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * Check if a user is a member of the given subreddit.
+     * Throws exception if subreddit doesn't exist or user is not a member.
+     */
+    public boolean isMember(String subredditName, String username) {
+        try {
+            MemberCheckResponse response = restClient.get()
+                    .uri("/api/subreddits/{name}/is-member/{username}", subredditName, username)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, response2) -> {
+                        throw new RestClientResponseException(
+                                "Member check failed",
+                                response2.getStatusCode().value(),
+                                response2.getStatusText(),
+                                response2.getHeaders(),
+                                null,
+                                null);
+                    })
+                    .body(MemberCheckResponse.class);
+            return response != null && response.isMember();
+        } catch (RestClientResponseException ex) {
+            if (ex.getStatusCode().value() == 404) {
+                throw new ResourceNotFoundException("Subreddit not found: r/" + subredditName);
+            }
+            throw new DownstreamServiceException("Unable to validate subreddit membership", ex);
+        } catch (RestClientException ex) {
+            throw new DownstreamServiceException("Unable to validate subreddit membership", ex);
+        }
+    }
+
     @Data
     private static class SubredditLookupResponse {
         private Boolean archived;
+    }
+
+    @Data
+    private static class ModeratorCheckResponse {
+        private Boolean moderator;
     }
 }

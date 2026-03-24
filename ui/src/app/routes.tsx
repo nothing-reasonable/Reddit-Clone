@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router';
 import { Outlet } from 'react-router';
+import { Navigate } from 'react-router';
 import { AuthProvider } from './contexts/AuthContext';
 import { SubredditProvider } from './contexts/SubredditContext';
 import Layout from './components/Layout';
@@ -15,6 +16,7 @@ import AutoModSettings from './pages/AutoModSettings';
 import ModTools from './pages/ModTools';
 import ModLog from './pages/ModLog';
 import BannedUsers from './pages/BannedUsers';
+import ModMailPage from './pages/ModMailPage';
 import MessagingPage from './pages/MessagingPage';
 import SubredditSettings from './pages/SubredditSettings';
 import TrafficStats from './pages/TrafficStats';
@@ -62,6 +64,8 @@ export const router = createBrowserRouter([
           { path: 'r/:subreddit/automod', element: <AutoModSettings /> },
           { path: 'r/:subreddit/mod/log', element: <ModLog /> },
           { path: 'r/:subreddit/mod/banned', element: <BannedUsers /> },
+          { path: 'r/:subreddit/modmail', element: <ModMailPage /> },
+          { path: 'r/:subreddit/modmai', element: <Navigate to="../modmail" replace /> },
           { path: 'messages', element: <MessagingPage /> },
           { path: 'r/:subreddit/mod/settings', element: <SubredditSettings /> },
           { path: 'r/:subreddit/mod/traffic', element: <TrafficStats /> },
