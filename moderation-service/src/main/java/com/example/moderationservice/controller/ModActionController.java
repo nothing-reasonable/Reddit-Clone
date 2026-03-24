@@ -82,4 +82,26 @@ public class ModActionController {
         moderatorAuthService.requireModerator(subreddit, authentication.getName());
         return ResponseEntity.ok(modActionService.executeAction(postId, "unpin", authentication.getName(), subreddit));
     }
+
+    // ── Comment Mod Action Endpoints ────────────────────────────────
+
+    @PostMapping("/{postId}/comments/{commentId}/approve")
+    public ResponseEntity<ModActionResponse> approveComment(
+            @PathVariable String subreddit,
+            @PathVariable String postId,
+            @PathVariable String commentId,
+            Authentication authentication) {
+        moderatorAuthService.requireModerator(subreddit, authentication.getName());
+        return ResponseEntity.ok(modActionService.executeCommentAction(commentId, postId, "approve", authentication.getName(), subreddit));
+    }
+
+    @PostMapping("/{postId}/comments/{commentId}/remove")
+    public ResponseEntity<ModActionResponse> removeComment(
+            @PathVariable String subreddit,
+            @PathVariable String postId,
+            @PathVariable String commentId,
+            Authentication authentication) {
+        moderatorAuthService.requireModerator(subreddit, authentication.getName());
+        return ResponseEntity.ok(modActionService.executeCommentAction(commentId, postId, "remove", authentication.getName(), subreddit));
+    }
 }

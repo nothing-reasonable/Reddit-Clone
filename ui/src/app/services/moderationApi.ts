@@ -29,19 +29,35 @@ export async function getModQueue(token: string, subreddit: string): Promise<Mod
   return data.content ?? [];
 }
 
-export async function approveModItem(token: string, subreddit: string, postId: string): Promise<void> {
-  const response = await fetch(
-    `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/mod-actions/${encodeURIComponent(postId)}/approve`,
-    { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
-  );
+export async function approveModItem(token: string, subreddit: string, itemId: string, type?: 'post' | 'comment', postId?: string): Promise<void> {
+  let url: string;
+  
+  if (type === 'comment' && postId) {
+    url = `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/mod-actions/${encodeURIComponent(postId)}/comments/${encodeURIComponent(itemId)}/approve`;
+  } else {
+    url = `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/mod-actions/${encodeURIComponent(itemId)}/approve`;
+  }
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  });
   if (!response.ok) throw new Error(`Failed to approve item (${response.status})`);
 }
 
-export async function removeModItem(token: string, subreddit: string, postId: string): Promise<void> {
-  const response = await fetch(
-    `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/mod-actions/${encodeURIComponent(postId)}/remove`,
-    { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
-  );
+export async function removeModItem(token: string, subreddit: string, itemId: string, type?: 'post' | 'comment', postId?: string): Promise<void> {
+  let url: string;
+  
+  if (type === 'comment' && postId) {
+    url = `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/mod-actions/${encodeURIComponent(postId)}/comments/${encodeURIComponent(itemId)}/remove`;
+  } else {
+    url = `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/mod-actions/${encodeURIComponent(itemId)}/remove`;
+  }
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}` }
+  });
   if (!response.ok) throw new Error(`Failed to remove item (${response.status})`);
 }
 

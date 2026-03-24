@@ -205,3 +205,28 @@ export async function requestSubredditTakeover(token: string, subredditName: str
     throw new Error(await parseApiError(response));
   }
 }
+
+interface SubredditMemberDto {
+  id: number;
+  username: string;
+  subredditId: number;
+  role: 'MEMBER' | 'MODERATOR';
+  joinedAt: string;
+}
+
+export async function getUserCommunities(token: string): Promise<SubredditMemberDto[]> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/user/communities`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  return (await response.json()) as SubredditMemberDto[];
+}

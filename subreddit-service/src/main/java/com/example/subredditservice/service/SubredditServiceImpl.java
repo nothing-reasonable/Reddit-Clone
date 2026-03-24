@@ -250,6 +250,13 @@ public class SubredditServiceImpl implements SubredditService {
     }
 
     @Override
+    public List<SubredditMemberDto> getUserCommunities(String username) {
+        return memberRepository.findByUsername(username).stream()
+                .map(this::mapMemberToDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public boolean isMember(String subredditName, String username) {
         Subreddit subreddit = subredditRepository.findByName(subredditName)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));

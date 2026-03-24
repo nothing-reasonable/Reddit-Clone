@@ -29,16 +29,6 @@ public class SubredditController {
         return new ResponseEntity<>(created, HttpStatus.CREATED);
     }
 
-    @GetMapping("/{name}")
-    public ResponseEntity<SubredditDto> getSubredditByName(@PathVariable String name) {
-        return ResponseEntity.ok(subredditService.getSubredditByName(name));
-    }
-
-    @GetMapping("/id/{id}")
-    public ResponseEntity<SubredditDto> getSubredditById(@PathVariable Long id) {
-        return ResponseEntity.ok(subredditService.getSubredditById(id));
-    }
-
     @GetMapping
     public ResponseEntity<List<SubredditDto>> getAllSubreddits() {
         return ResponseEntity.ok(subredditService.getAllSubreddits());
@@ -47,6 +37,22 @@ public class SubredditController {
     @GetMapping("/search")
     public ResponseEntity<List<SubredditDto>> searchSubreddits(@RequestParam String q) {
         return ResponseEntity.ok(subredditService.searchSubreddits(q));
+    }
+
+    @GetMapping("/user/communities")
+    public ResponseEntity<List<SubredditMemberDto>> getUserCommunities(Authentication authentication) {
+        List<SubredditMemberDto> communities = subredditService.getUserCommunities(authentication.getName());
+        return ResponseEntity.ok(communities);
+    }
+
+    @GetMapping("/id/{id}")
+    public ResponseEntity<SubredditDto> getSubredditById(@PathVariable Long id) {
+        return ResponseEntity.ok(subredditService.getSubredditById(id));
+    }
+
+    @GetMapping("/{name}")
+    public ResponseEntity<SubredditDto> getSubredditByName(@PathVariable String name) {
+        return ResponseEntity.ok(subredditService.getSubredditByName(name));
     }
 
     @PutMapping("/{name}")
@@ -116,6 +122,8 @@ public class SubredditController {
         boolean isMember = subredditService.isMember(name, username);
         return ResponseEntity.ok(new MemberCheckResponse(isMember));
     }
+
+
 
     // ───── Rules ─────
 

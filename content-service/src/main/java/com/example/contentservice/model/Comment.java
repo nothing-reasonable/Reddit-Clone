@@ -12,7 +12,8 @@ import java.time.LocalDateTime;
         @Index(name = "idx_comment_post", columnList = "post_id"),
         @Index(name = "idx_comment_parent", columnList = "parent_id"),
         @Index(name = "idx_comment_author", columnList = "author"),
-        @Index(name = "idx_comment_created_at", columnList = "created_at")
+        @Index(name = "idx_comment_created_at", columnList = "created_at"),
+        @Index(name = "idx_comment_subreddit_flagged", columnList = "subreddit,flagged")
 })
 @Getter
 @Setter
@@ -26,6 +27,9 @@ public class Comment {
     
     @Column(name = "post_id", nullable = false)
     private String postId;
+    
+    @Column(nullable = false)
+    private String subreddit;
     
     @Column(name = "parent_id")
     private String parentId; // null for top-level comments
@@ -63,4 +67,12 @@ public class Comment {
     @Builder.Default
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean flagged = false;
+
+    @Builder.Default
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private int reports = 0;
+
+    @Builder.Default
+    @Column(columnDefinition = "TEXT")
+    private String reportReasons = "[]"; // JSON array of report reasons
 }

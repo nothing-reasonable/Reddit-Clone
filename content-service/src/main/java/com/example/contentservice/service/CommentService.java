@@ -15,6 +15,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 
 import java.util.List;
 import java.util.UUID;
@@ -66,6 +69,7 @@ public class CommentService {
         Comment comment = Comment.builder()
                 .id(UUID.randomUUID().toString())
                 .postId(postId)
+                .subreddit(post.getSubreddit())
                 .parentId(request.getParentId())
                 .author(author)
                 .content(request.getContent())
@@ -144,7 +148,7 @@ public class CommentService {
     }
 
     @Transactional
-    public void reportComment(String postId, String commentId) {
+    public void reportComment(String postId, String commentId, String reason) {
         Comment comment = commentRepository.findById(commentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Comment not found: " + commentId));
 
@@ -152,13 +156,27 @@ public class CommentService {
             throw new IllegalArgumentException("Comment does not belong to this post");
         }
 
-        if (!comment.isFlagged()) {
-            comment.setFlagged(true);
-            commentRepository.save(comment);
-            log.info("Comment reported: {} on post {}", commentId, postId);
-        } else {
-            log.warn("Comment already flagged: {} on post {}", commentId, postId);
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            ArrayNode reasons = (ArrayNode) mapper.readTree(comment.getReportReasons() == null ? "[]" : comment.getReportReasons());
+            reasons.add(reason != null ? reason : "Reported");
+            comment.setReportReasons(mapper.writeValueAsString(reasons));
+        } catch (Exception e) {
+            log.error("Error parsing report reasons", e);
+            comment.setReportReasons("[]");
         }
+
+        comment.setReports(comment.getReports() + 1);
+        comment.setFlagged(true);
+        commentRepository.save(comment);
+        log.info("Comment reported: {} on post {} with reason: {} (total reports: {})", commentId, postId, reason, comment.getReports());
+    }
+
+    @Transactional(readOnly = true)
+    public Page<CommentDto> getFlaggedComments(String subreddit, Pageable pageable) {
+        log.info("Fetching flagged comments for subreddit: {}", subreddit);
+        return commentRepository.findBySubredditAndFlaggedTrueAndRemovedFalse(subreddit, pageable)
+                .map(this::mapToDto);
     }
 
     private CommentDto mapToDto(Comment comment) {
@@ -175,6 +193,34 @@ public class CommentService {
                 .editedAt(comment.getEditedAt())
                 .removed(comment.isRemoved())
                 .flagged(comment.isFlagged())
+                .reports(comment.getReports())
                 .build();
+    }
+
+    public Comment getCommentById(String commentId) {
+        return commentRepository.findById(commentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Comment not found: " + commentId));
+    }
+
+    @Transactional
+    public void saveCommentInternal(Comment comment) {
+        commentRepository.save(comment);
+    }
+
+    @Transactional
+    public Comment approveComment(String commentId) {
+        Comment comment = getCommentById(commentId);
+        comment.setReports(0);
+        comment.setReportReasons("[]");
+        comment.setFlagged(false);
+        comment.setRemoved(false);
+        return commentRepository.save(comment);
+    }
+
+    @Transactional
+    public Comment removeComment(String commentId) {
+        Comment comment = getCommentById(commentId);
+        comment.setRemoved(true);
+        return commentRepository.save(comment);
     }
 }

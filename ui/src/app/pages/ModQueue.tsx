@@ -19,22 +19,38 @@ export default function ModQueue() {
   const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
   const [queueItems, setQueueItems] = useState<ModQueueItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [accessDenied, setAccessDenied] = useState(false);
 
   useEffect(() => {
     if (!subreddit || !token) return;
 
     let isMounted = true;
     setIsLoading(true);
+    setAccessDenied(false);
 
-    Promise.all([getSubredditByName(subreddit), getModQueue(token, subreddit)])
+    Promise.all([
+      getSubredditByName(subreddit).catch(() => null),
+      getModQueue(token, subreddit)
+    ])
       .then(([subredditRecord, items]) => {
         if (!isMounted) return;
         setSubredditData(subredditRecord);
         setQueueItems(items);
+        setAccessDenied(false);
       })
-      .catch(() => {
+      .catch((error) => {
         if (!isMounted) return;
-        setSubredditData(null);
+        console.error('ModQueue error:', error);
+        // If we get a 403 or authorization error, user is not a moderator
+        const errorMsg = error?.message || '';
+        if (errorMsg.includes('403') || errorMsg.includes('Moderator')) {
+          setAccessDenied(true);
+        } else {
+          // For other errors, still try to load subreddit data
+          getSubredditByName(subreddit)
+            .then(sr => { if (isMounted) setSubredditData(sr); })
+            .catch(() => {});
+        }
         setQueueItems([]);
       })
       .finally(() => {
@@ -46,12 +62,22 @@ export default function ModQueue() {
     };
   }, [subreddit, token]);
 
-  const isModerator = isSubredditModerator(subreddit || '') || (user?.isModerator && subredditData?.moderators.includes(user.username));
+  const isModerator = !accessDenied && (isSubredditModerator(subreddit || '') || (user?.isModerator && subredditData?.moderators.includes(user.username)));
 
   const [filter, setFilter] = useState<'all' | 'posts' | 'comments' | 'users'>('all');
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
   const [removedItems, setRemovedItems] = useState<Set<string>>(new Set());
   const [approvedItems, setApprovedItems] = useState<Set<string>>(new Set());
+
+  const refetchQueue = async () => {
+    if (!token || !subreddit) return;
+    try {
+      const items = await getModQueue(token, subreddit);
+      setQueueItems(items);
+    } catch (err) {
+      console.error('Failed to refresh queue:', err);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -61,7 +87,7 @@ export default function ModQueue() {
     );
   }
 
-  if (!isModerator) {
+  if (!isModerator || accessDenied) {
     return (
       <div className="max-w-3xl mx-auto p-4">
         <div className="bg-white border border-gray-300 rounded p-8 text-center">
@@ -81,24 +107,52 @@ export default function ModQueue() {
   const handleApprove = async (itemId: string) => {
     if (!token || !subreddit) return;
     try {
-      await approveModItem(token, subreddit, itemId);
+      const item = queueItems.find((i) => i.id === itemId);
+      
+      await approveModItem(token, subreddit, itemId, item?.type as any, item?.postId);
       setApprovedItems(new Set(approvedItems).add(itemId));
       setSelectedItems((prev) => { const n = new Set(prev); n.delete(itemId); return n; });
-      toast.success('Post approved');
-    } catch {
-      toast.error('Failed to approve post');
+      
+      // If post is approved, also mark all its comments as approved
+      if (item?.type === 'post') {
+        const relatedComments = queueItems.filter((q) => q.type === 'comment' && q.postId === itemId);
+        relatedComments.forEach((comment) => {
+          setApprovedItems((prev) => new Set(prev).add(comment.id));
+        });
+      }
+      
+      toast.success(`${item?.type === 'comment' ? 'Comment' : 'Post'} approved`);
+      
+      // Refresh queue after approval
+      setTimeout(() => refetchQueue(), 500);
+    } catch (error) {
+      toast.error(`Failed to approve ${queueItems.find((i) => i.id === itemId)?.type || 'item'}`);
     }
   };
 
   const handleRemove = async (itemId: string) => {
     if (!token || !subreddit) return;
     try {
-      await removeModItem(token, subreddit, itemId);
+      const item = queueItems.find((i) => i.id === itemId);
+      
+      await removeModItem(token, subreddit, itemId, item?.type as any, item?.postId);
       setRemovedItems(new Set(removedItems).add(itemId));
       setSelectedItems((prev) => { const n = new Set(prev); n.delete(itemId); return n; });
-      toast.success('Post removed');
-    } catch {
-      toast.error('Failed to remove post');
+      
+      // If post is removed, also mark all its comments as removed
+      if (item?.type === 'post') {
+        const relatedComments = queueItems.filter((q) => q.type === 'comment' && q.postId === itemId);
+        relatedComments.forEach((comment) => {
+          setRemovedItems((prev) => new Set(prev).add(comment.id));
+        });
+      }
+      
+      toast.success(`${item?.type === 'comment' ? 'Comment' : 'Post'} removed`);
+      
+      // Refresh queue after removal
+      setTimeout(() => refetchQueue(), 500);
+    } catch (error) {
+      toast.error(`Failed to remove ${queueItems.find((i) => i.id === itemId)?.type || 'item'}`);
     }
   };
 
@@ -115,11 +169,15 @@ export default function ModQueue() {
     (item) => !removedItems.has(item.id) && !approvedItems.has(item.id)
   );
 
-  const allVisibleIds = filter === 'all' || filter === 'posts' ? visibleItems.map((i) => i.id) : [];
+  const postItems = visibleItems.filter((item) => item.type === 'post');
+  const commentItems = visibleItems.filter((item) => item.type === 'comment');
+
+  const allVisibleIds = filter === 'all' ? visibleItems.map((i) => i.id) : filter === 'posts' ? postItems.map((i) => i.id) : [];
 
   const selectAll = () => {
-    if (selectedItems.size === allVisibleIds.length) setSelectedItems(new Set());
-    else setSelectedItems(new Set(allVisibleIds));
+    const ids = filter === 'all' ? visibleItems.map((i) => i.id) : filter === 'posts' ? postItems.map((i) => i.id) : [];
+    if (selectedItems.size === ids.length) setSelectedItems(new Set());
+    else setSelectedItems(new Set(ids));
   };
 
   const handleBulkApprove = async () => {
@@ -131,6 +189,8 @@ export default function ModQueue() {
     setApprovedItems(newApproved);
     toast.success(`${ids.length} items approved`);
     setSelectedItems(new Set());
+    // Refresh queue after bulk approve
+    setTimeout(() => refetchQueue(), 500);
   };
 
   const handleBulkRemove = async () => {
@@ -142,19 +202,23 @@ export default function ModQueue() {
     setRemovedItems(newRemoved);
     toast.success(`${ids.length} items removed`);
     setSelectedItems(new Set());
+    // Refresh queue after bulk remove
+    setTimeout(() => refetchQueue(), 500);
   };
 
   const totalItems =
-    filter === 'all' || filter === 'posts'
+    filter === 'all'
       ? visibleItems.length
+      : filter === 'posts'
+      ? postItems.length
       : filter === 'comments'
-      ? 0
+      ? commentItems.length
       : REPORTED_USERS.length;
 
   const tabs = [
     { id: 'all' as const, label: 'All', count: visibleItems.length },
-    { id: 'posts' as const, label: 'Posts', count: visibleItems.length },
-    { id: 'comments' as const, label: 'Comments', count: 0 },
+    { id: 'posts' as const, label: 'Posts', count: postItems.length },
+    { id: 'comments' as const, label: 'Comments', count: commentItems.length },
     { id: 'users' as const, label: 'Users', count: REPORTED_USERS.length },
   ];
 
@@ -305,7 +369,7 @@ export default function ModQueue() {
             <p className="text-gray-600">No reported items in the queue.</p>
           </div>
         ) : (
-          visibleItems.map((item) => (
+          (filter === 'all' ? visibleItems : filter === 'posts' ? postItems : filter === 'comments' ? commentItems : []).map((item) => (
             <div key={item.id} className="bg-white border-2 border-red-300 rounded p-4">
               <div className="flex items-start gap-3">
                 {/* Checkbox */}
@@ -319,7 +383,9 @@ export default function ModQueue() {
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
                     <Flag className="w-4 h-4 text-red-500" />
-                    <span className="font-bold text-red-500">REPORTED POST</span>
+                    <span className={`font-bold ${item.reportCount > 0 ? 'text-red-500' : 'text-yellow-600'}`}>
+                      {item.reportCount > 0 ? 'USER REPORTED' : 'FLAGGED BY AUTOMOD'} {item.type === 'comment' ? 'COMMENT' : 'POST'}
+                    </span>
                     <span className="text-gray-600">&#8226;</span>
                     <span className="text-sm text-gray-600">by u/{item.author}</span>
                     {item.reportCount > 0 && (
@@ -332,14 +398,24 @@ export default function ModQueue() {
                   <h3 className="font-bold text-lg mb-1">{item.contentTitle}</h3>
                   <p className="text-sm text-gray-700 mb-2 line-clamp-2">{item.contentBody}</p>
                   {item.flagReason && (
-                    <div className="inline-block px-3 py-1 bg-red-100 text-red-700 text-sm rounded-full">
-                      Reason: {item.flagReason}
+                    <div className={`inline-block px-3 py-1 text-sm rounded-full ${
+                      item.reportCount > 0 
+                        ? 'bg-red-100 text-red-700' 
+                        : 'bg-yellow-100 text-yellow-700'
+                    }`}>
+                      {item.reportCount > 0 ? 'Reason: ' : 'AutoMod Reason: '}{item.flagReason}
                     </div>
                   )}
                 </div>
                 <div className="flex flex-col gap-2">
                   <Link
-                    to={`/r/${subreddit}/comments/${item.id}`}
+                    to={item.type === 'comment' ? `#` : `/r/${subreddit}/comments/${item.id}`}
+                    onClick={(e) => {
+                      if (item.type === 'comment') {
+                        e.preventDefault();
+                        toast.info('Comment viewing not yet implemented');
+                      }
+                    }}
                     className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50"
                   >
                     <Eye className="w-4 h-4" />

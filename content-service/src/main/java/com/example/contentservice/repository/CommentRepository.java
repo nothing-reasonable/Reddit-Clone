@@ -18,4 +18,7 @@ public interface CommentRepository extends JpaRepository<Comment, String> {
     long countByPostId(String postId);
     void deleteByPostId(String postId);
     List<Comment> findByAuthor(String author);
+    Page<Comment> findByFlaggedTrue(Pageable pageable);
+    Page<Comment> findBySubredditAndFlaggedTrue(String subreddit, Pageable pageable);
+    Page<Comment> findBySubredditAndFlaggedTrueAndRemovedFalse(String subreddit, Pageable pageable);
 }

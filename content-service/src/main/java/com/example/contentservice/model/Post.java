@@ -67,6 +67,10 @@ public class Post {
     @Column(nullable = false, columnDefinition = "integer default 0")
     private int reports = 0;
 
+    @Builder.Default
+    @Column(columnDefinition = "TEXT")
+    private String reportReasons = "[]"; // JSON array of report reasons
+
     // Kept to satisfy existing postgres schema constraints
     @Builder.Default
     @Column(nullable = false)

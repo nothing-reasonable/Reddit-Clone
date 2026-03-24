@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+import { reportComment } from '../services/commentApi';
 
 export type CommentNode = {
   id: string;
@@ -16,6 +17,8 @@ export type CommentNode = {
   createdAt: Date;
   removed: boolean;
   flagged: boolean;
+  reports?: number;
+  reportReasons?: string;
   replies: CommentNode[];
 };
 
@@ -34,6 +37,9 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
   const [collapsed, setCollapsed] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
+  const [isReporting, setIsReporting] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState('');
 
   const score = node.upvotes - node.downvotes + (vote === 'up' ? 1 : vote === 'down' ? -1 : 0);
 
@@ -61,6 +67,48 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
       await onDelete(node.id);
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleReport = () => {
+    setShowReportModal(true);
+  };
+
+  const getReportReasonsDisplay = (): string => {
+    // If there are user reports (reports > 0), try to show the reason
+    if (node.reports && node.reports > 0) {
+      if (node.reportReasons) {
+        try {
+          const reasons = JSON.parse(node.reportReasons);
+          if (Array.isArray(reasons) && reasons.length > 0) {
+            return `Reported for: ${reasons[0]}${reasons.length > 1 ? ` (+${reasons.length - 1} more)` : ''}`;
+          }
+        } catch {
+          // If parsing fails, just show user reported
+          return 'User reported';
+        }
+      }
+      return 'User reported';
+    }
+    // No user reports, so it's AutoMod flagged
+    return 'Flagged by AutoMod';
+  };
+
+  const handleReportSubmit = async () => {
+    if (!reportReason) {
+      toast.error('Please select a reason');
+      return;
+    }
+    setIsReporting(true);
+    try {
+      await reportComment(node.postId, node.id, reportReason);
+      toast.success('Comment reported successfully');
+      setShowReportModal(false);
+      setReportReason('');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to report comment');
+    } finally {
+      setIsReporting(false);
     }
   };
 
@@ -121,8 +169,8 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
               {node.author}
             </Link>
             {node.flagged && (
-              <span className="bg-yellow-100 text-yellow-800 px-1.5 rounded flex items-center gap-1 font-medium">
-                <Flag className="w-3 h-3" /> Flagged
+              <span className="bg-yellow-100 text-yellow-800 px-1.5 rounded flex items-center gap-1 font-medium" title={getReportReasonsDisplay()}>
+                <Flag className="w-3 h-3" /> {node.reports && node.reports > 0 ? `${node.reports} Report${node.reports > 1 ? 's' : ''}` : 'AutoMod'}
               </span>
             )}
             <span>•</span>
@@ -140,26 +188,34 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
                   {score > 0 ? '+' : ''}{score} vote{score !== 1 ? 's' : ''}
                 </span>
 
-                <div className="opacity-0 group-hover/comment:opacity-100 flex items-center flex-wrap gap-2 transition-opacity">
+                <div className="flex items-center flex-wrap gap-2">
                   <button 
                     onClick={() => setShowReplyBox(!showReplyBox)}
-                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 font-medium"
+                    className="opacity-0 group-hover/comment:opacity-100 flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 font-medium transition-opacity"
                     disabled={isReplying}
                   >
                     <MessageSquare className="w-3.5 h-3.5" />
                     Reply
                   </button>
 
-                  <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 font-medium ml-1">
+                  <button 
+                    onClick={handleReport}
+                    className={`flex items-center gap-1 text-xs font-medium ml-1 ${
+                      (node.flagged || (node.reports ?? 0) > 0)
+                        ? 'text-red-500 cursor-not-allowed'
+                        : 'text-gray-500 hover:text-red-500'
+                    }`}
+                    disabled={(node.flagged || (node.reports ?? 0) > 0)}
+                  >
                     <Flag className="w-3.5 h-3.5" />
-                    Report
+                    {(node.flagged || (node.reports ?? 0) > 0) ? 'Reported' : 'Report'}
                   </button>
                   
                   {(isModerator || node.author === "moderator") && onDelete && (
                     <button 
                       onClick={handleDelete}
                       disabled={isDeleting}
-                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 font-medium ml-1"
+                      className="opacity-0 group-hover/comment:opacity-100 flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 font-medium ml-1 transition-opacity"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       Delete
@@ -212,6 +268,58 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
           )}
         </div>
       </div>
+
+      {/* Report Modal */}
+      {showReportModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowReportModal(false)}>
+          <div
+            className="bg-white rounded-2xl w-full max-w-sm overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
+              <h3 className="font-bold text-lg">Report Comment</h3>
+              <button onClick={() => setShowReportModal(false)} className="p-1 hover:bg-gray-100 rounded-full">
+                ✕
+              </button>
+            </div>
+            <div className="p-4 space-y-2">
+              {['Spam', 'Harassment', 'Hate speech', 'Misinformation', 'Breaks community rules', 'Other'].map((reason) => (
+                <label
+                  key={reason}
+                  className={`flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer border transition-colors ${
+                    reportReason === reason ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="reportReason"
+                    value={reason}
+                    checked={reportReason === reason}
+                    onChange={(e) => setReportReason(e.target.value)}
+                    className="accent-red-500"
+                  />
+                  <span className="text-sm">{reason}</span>
+                </label>
+              ))}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-200 flex gap-2">
+              <button 
+                onClick={() => setShowReportModal(false)}
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-full text-sm font-semibold hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button 
+                onClick={handleReportSubmit}
+                disabled={isReporting || !reportReason}
+                className="flex-1 px-4 py-2 bg-red-500 text-white rounded-full text-sm font-semibold hover:bg-red-600 disabled:bg-gray-400"
+              >
+                {isReporting ? 'Reporting...' : 'Submit Report'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

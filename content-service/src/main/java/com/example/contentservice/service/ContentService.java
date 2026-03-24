@@ -11,6 +11,8 @@ import com.example.contentservice.model.*;
 import com.example.contentservice.repository.PostRepository;
 import com.example.contentservice.repository.SavedPostRepository;
 import com.example.contentservice.repository.VoteRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
@@ -117,7 +119,6 @@ public class ContentService {
                 if ("remove".equals(action)) {
                     post.setRemoved(true);
                     log.info("Post {} removed by AutoMod", post.getId());
-                    break; // stop evaluating further rules once removed
                 } else if ("flag".equals(action) || "filter".equals(action)) {
                     post.setFlagged(true);
                     log.info("Post {} flagged by AutoMod", post.getId());
@@ -259,8 +260,19 @@ public class ContentService {
     }
 
     @Transactional
-    public void reportPost(String postId) {
+    public void reportPost(String postId, String reason) {
         Post post = getPost(postId);
+        
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            ArrayNode reasons = (ArrayNode) mapper.readTree(post.getReportReasons() == null ? "[]" : post.getReportReasons());
+            reasons.add(reason != null ? reason : "Reported");
+            post.setReportReasons(mapper.writeValueAsString(reasons));
+        } catch (Exception e) {
+            log.error("Error parsing report reasons", e);
+            post.setReportReasons("[]");
+        }
+        
         post.setReports(post.getReports() + 1);
         postRepository.save(post);
     }
@@ -286,6 +298,7 @@ public class ContentService {
     public Post approvePost(String postId) {
         Post post = getPost(postId);
         post.setReports(0);
+        post.setReportReasons("[]");
         post.setFlagged(false);
         post.setRemoved(false);
         return postRepository.save(post);

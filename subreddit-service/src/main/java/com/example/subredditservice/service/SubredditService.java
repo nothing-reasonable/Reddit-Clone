@@ -21,6 +21,7 @@ public interface SubredditService {
     void resignModeratorRole(String subredditName, String username);
     void requestTakeover(String subredditName, String username);
     List<SubredditMemberDto> getMembers(String subredditName);
+    List<SubredditMemberDto> getUserCommunities(String username);
     boolean isMember(String subredditName, String username);
 
     // Rules
