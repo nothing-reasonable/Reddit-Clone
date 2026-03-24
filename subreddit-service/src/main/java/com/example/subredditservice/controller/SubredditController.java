@@ -123,7 +123,40 @@ public class SubredditController {
         return ResponseEntity.ok(new MemberCheckResponse(isMember));
     }
 
+    // ───── Bans ─────
 
+    @PostMapping("/{name}/bans")
+    public ResponseEntity<BannedMemberDto> banUser(
+            @PathVariable String name,
+            @RequestBody BanRequest request,
+            Authentication authentication
+    ) {
+        BannedMemberDto banned = subredditService.banUser(name, request, authentication.getName());
+        return new ResponseEntity<>(banned, HttpStatus.CREATED);
+    }
+
+    @DeleteMapping("/{name}/bans/{username}")
+    public ResponseEntity<Void> unbanUser(
+            @PathVariable String name,
+            @PathVariable String username
+    ) {
+        subredditService.unbanUser(name, username);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/{name}/bans")
+    public ResponseEntity<List<BannedMemberDto>> getBannedUsers(@PathVariable String name) {
+        return ResponseEntity.ok(subredditService.getBannedUsers(name));
+    }
+
+    @GetMapping("/{name}/is-banned/{username}")
+    public ResponseEntity<IsBannedResponse> isBanned(
+            @PathVariable String name,
+            @PathVariable String username
+    ) {
+        boolean banned = subredditService.isBanned(name, username);
+        return ResponseEntity.ok(new IsBannedResponse(banned));
+    }
 
     // ───── Rules ─────
 

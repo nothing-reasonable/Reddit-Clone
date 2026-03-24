@@ -47,6 +47,12 @@ public class CommentService {
             throw new UnauthorizedActionException("Post is locked. New comments are not allowed.");
         }
 
+        // Check if user is banned from the subreddit
+        if (subredditClient.isBanned(post.getSubreddit(), author)) {
+            log.warn("Banned user {} attempted to comment in r/{}", author, post.getSubreddit());
+            throw new UnauthorizedActionException("You are banned from r/" + post.getSubreddit() + " and cannot comment.");
+        }
+
         // Verify user is a member of the subreddit
         log.info("Checking if user {} is a member of r/{}", author, post.getSubreddit());
         boolean isMember = subredditClient.isMember(post.getSubreddit(), author);

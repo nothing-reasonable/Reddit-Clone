@@ -47,6 +47,12 @@ public class ContentService {
     public Post createPost(String subreddit, String author, PostCreateRequest request) {
         subredditClient.assertSubredditExists(subreddit);
         
+        // Check if user is banned from the subreddit
+        if (subredditClient.isBanned(subreddit, author)) {
+            log.warn("Banned user {} attempted to post in r/{}", author, subreddit);
+            throw new UnauthorizedActionException("You are banned from r/" + subreddit + " and cannot post.");
+        }
+
         // Verify user is a member of the subreddit
         log.info("Checking if user {} is a member of r/{}", author, subreddit);
         boolean isMember = subredditClient.isMember(subreddit, author);

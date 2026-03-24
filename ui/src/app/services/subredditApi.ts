@@ -230,3 +230,49 @@ export async function getUserCommunities(token: string): Promise<SubredditMember
 
   return (await response.json()) as SubredditMemberDto[];
 }
+
+// ─── Ban management ───────────────────────────────────────────────────────────
+
+export interface BannedMemberDto {
+  id: number;
+  username: string;
+  bannedBy: string;
+  reason: string;
+  permanent: boolean;
+  expiresAt?: string;
+  bannedAt: string;
+}
+
+export async function getBannedUsers(token: string, subredditName: string): Promise<BannedMemberDto[]> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/bans`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) throw new Error(await parseApiError(response));
+  return (await response.json()) as BannedMemberDto[];
+}
+
+export async function banUser(
+  token: string,
+  subredditName: string,
+  payload: { username: string; reason: string; permanent: boolean; durationDays?: number }
+): Promise<BannedMemberDto> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/bans`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!response.ok) throw new Error(await parseApiError(response));
+  return (await response.json()) as BannedMemberDto;
+}
+
+export async function unbanUser(token: string, subredditName: string, username: string): Promise<void> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/bans/${encodeURIComponent(username)}`,
+    { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) throw new Error(await parseApiError(response));
+}

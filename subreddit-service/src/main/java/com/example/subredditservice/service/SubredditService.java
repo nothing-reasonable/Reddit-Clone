@@ -6,6 +6,12 @@ import java.util.List;
 
 public interface SubredditService {
 
+    // Bans
+    BannedMemberDto banUser(String subredditName, BanRequest request, String moderatorUsername);
+    void unbanUser(String subredditName, String username);
+    List<BannedMemberDto> getBannedUsers(String subredditName);
+    boolean isBanned(String subredditName, String username);
+
     // Subreddit CRUD
     SubredditDto createSubreddit(CreateSubredditRequest request, String creatorUsername);
     SubredditDto getSubredditByName(String name);
