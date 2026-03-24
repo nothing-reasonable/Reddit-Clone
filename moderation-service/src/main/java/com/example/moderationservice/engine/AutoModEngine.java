@@ -11,17 +11,30 @@ import java.util.regex.PatternSyntaxException;
 @Service
 public class AutoModEngine {
 
+    /**
+     * Rule maps can contain both "condition keys" (e.g. title/body/author/reports)
+     * and "action/config keys" (e.g. action/comment/modmail/type/priority).
+     *
+     * When evaluating whether a rule triggers, we must ignore non-condition keys;
+     * otherwise action fields like "comment:" could accidentally be treated as
+     * conditions and cause false negatives.
+     */
     private static final Set<String> ACTION_KEYS = Set.of(
             "action", "action_reason", "set_flair", "overwrite_flair",
             "comment", "comment_stickied", "modmail", "modmail_subject",
             "message", "message_subject", "type", "priority", "moderators_exempt",
-            "set_locked", "set_sticky", "set_nsfw", "set_contest_mode", "set_suggested_sort"
+            "set_locked", "set_sticky", "set_nsfw", "set_contest_mode", "set_suggested_sort",
+            "ignore_blockquotes"
     );
 
     public AutoModResult evaluateRule(Map<String, Object> rule, AutoModContext context) {
+        // Note: We always return an AutoModResult with an action string set.
+        // The caller should consult `triggered` to decide if the action would run.
         AutoModResult result = new AutoModResult();
         result.setTriggered(false);
 
+        // In Reddit AutoModerator, moderators are exempt from many rules by default.
+        // We follow that convention: if moderators_exempt is unset, treat it as true.
         boolean isModExempt = true; 
         if (rule.containsKey("moderators_exempt")) {
             Object val = rule.get("moderators_exempt");
@@ -33,17 +46,19 @@ public class AutoModEngine {
         }
 
         if (isModExempt && Boolean.TRUE.equals(context.getIsModerator())) {
-            // Auto-approve or bypass rules if moderator is exempt and user is a mod
+            // Early exit: rule does not apply to mods when exemptions are enabled.
+            // We intentionally do not "auto-approve" here; we simply don't trigger.
             return result;
         }
 
-        // Determine action
+        // Determine the "primary" action label for UI/consumers.
+        // If "action:" is absent, infer from the presence of other action-like keys.
         Object actionObj = rule.get("action");
         if (actionObj != null) {
             String actionStr = actionObj.toString();
             if ("remove".equals(actionStr)) result.setAction("remove");
             else if ("approve".equals(actionStr)) result.setAction("approve");
-            else if ("filter".equals(actionStr)) result.setAction("flag");
+            else if ("filter".equals(actionStr)) result.setAction("flag"); // project uses "flag" for mod-queue style filtering
             else result.setAction(actionStr);
         } else if (rule.get("set_flair") != null) {
             result.setAction("set_flair");
@@ -61,7 +76,8 @@ public class AutoModEngine {
             result.setAction("suggested_sort");
         }
 
-        // Determine message
+        // Determine the message template to render (if the rule triggers).
+        // We prioritize `message` (PM to user), then `comment`, then `modmail` for display.
         String msgTemplate = null;
         if (rule.get("message") != null) {
             msgTemplate = rule.get("message").toString();
@@ -82,6 +98,8 @@ public class AutoModEngine {
     private String replacePlaceholders(String template, AutoModContext context) {
         if (template == null) return null;
         String res = template;
+        // Placeholder support is intentionally small and aligned with fields we carry
+        // in AutoModContext. Unknown placeholders are left as-is.
         if (context.getAuthor() != null) res = res.replace("{{author}}", context.getAuthor());
         if (context.getTitle() != null) res = res.replace("{{title}}", context.getTitle());
         if (context.getBody() != null) res = res.replace("{{body}}", context.getBody());
@@ -93,6 +111,10 @@ public class AutoModEngine {
         if (context.getFlairCssClass() != null) res = res.replace("{{flair_css_class}}", context.getFlairCssClass());
         if (context.getSubreddit() != null) res = res.replace("{{subreddit}}", context.getSubreddit());
         if (context.getPermalink() != null) res = res.replace("{{permalink}}", context.getPermalink());
+        if (context.getMediaAuthor() != null) res = res.replace("{{media_author}}", context.getMediaAuthor());
+        if (context.getMediaAuthorUrl() != null) res = res.replace("{{media_author_url}}", context.getMediaAuthorUrl());
+        if (context.getMediaTitle() != null) res = res.replace("{{media_title}}", context.getMediaTitle());
+        if (context.getMediaDescription() != null) res = res.replace("{{media_description}}", context.getMediaDescription());
         return res;
     }
 
@@ -109,6 +131,8 @@ public class AutoModEngine {
         boolean isSubmission = contextType.contains("submission") || contextType.contains("link") || contextType.contains("self") || contextType.contains("text");
         boolean hasUrl = context.getUrl() != null && !context.getUrl().isBlank();
 
+        // We treat "submission" broadly because upstream code and UI may send
+        // type strings like "text submission" or "link submission".
         if (normalizedRuleType.equals("comment")) {
             return isComment;
         }
@@ -133,8 +157,20 @@ public class AutoModEngine {
     }
 
     private boolean evaluateConditions(Map<String, Object> rule, AutoModContext context) {
+        // A rule triggers only if *all* recognized conditions match.
+        // Unrecognized keys are ignored (so the engine is forward-compatible).
         boolean hasCondition = false;
-        
+
+        boolean ignoreBlockquotes = false;
+        if (rule.containsKey("ignore_blockquotes")) {
+            Object v = rule.get("ignore_blockquotes");
+            if (v instanceof Boolean) {
+                ignoreBlockquotes = (Boolean) v;
+            } else if (v instanceof String) {
+                ignoreBlockquotes = Boolean.parseBoolean((String) v);
+            }
+        }
+
         if (rule.containsKey("type")) {
             String ruleType = rule.get("type").toString();
             if (!matchesTypeCondition(ruleType, context)) {
@@ -146,6 +182,9 @@ public class AutoModEngine {
             String rawKey = entry.getKey().toLowerCase(Locale.ROOT);
             if (isActionKey(rawKey)) continue;
 
+            // Keys support:
+            // - negation via "~" prefix (e.g. "~title: [allowed]")
+            // - optional modifier list in parentheses (e.g. "title(regex, includes)").
             String fieldName = rawKey;
             String modifiers = "";
             boolean isNegation = false;
@@ -167,6 +206,10 @@ public class AutoModEngine {
             boolean matched = false;
             boolean validCondition = false;
 
+            // Default modifiers are chosen to follow the reference behavior:
+            // - title/body default to includes-word
+            // - domain/url default to includes
+            // - id/flair fields default to full-exact
             if (fieldName.equals("title")) {
                 matched = evaluateField(context.getTitle(), entry.getValue(), modifiers, "includes-word");
                 validCondition = true;
@@ -194,10 +237,18 @@ public class AutoModEngine {
                 matched = evaluateAuthor(authorBlock, context);
                 validCondition = true;
             } else if (fieldName.equals("body_longer_than")) {
-                matched = evaluateLength(context.getBody(), entry.getValue(), true);
+                String body = context.getBody();
+                if (ignoreBlockquotes) {
+                    body = stripBlockquotes(body);
+                }
+                matched = evaluateLength(body, entry.getValue(), true);
                 validCondition = true;
             } else if (fieldName.equals("body_shorter_than")) {
-                matched = evaluateLength(context.getBody(), entry.getValue(), false);
+                String body = context.getBody();
+                if (ignoreBlockquotes) {
+                    body = stripBlockquotes(body);
+                }
+                matched = evaluateLength(body, entry.getValue(), false);
                 validCondition = true;
             } else if (fieldName.equals("reports")) {
                 matched = checkNumericThreshold(entry.getValue(), context.getReports() != null ? context.getReports() : 0);
@@ -208,6 +259,23 @@ public class AutoModEngine {
             } else if (fieldName.equals("is_top_level")) {
                 matched = evaluateBoolean(context.getIsTopLevel(), entry.getValue());
                 validCondition = true;
+            } else if (fieldName.equals("parent_submission") && entry.getValue() instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> parentBlock = (Map<String, Object>) entry.getValue();
+                matched = evaluateParentSubmission(parentBlock, context);
+                validCondition = true;
+            } else if (fieldName.equals("media_author")) {
+                matched = evaluateField(context.getMediaAuthor(), entry.getValue(), modifiers, "full-exact");
+                validCondition = true;
+            } else if (fieldName.equals("media_author_url")) {
+                matched = evaluateField(context.getMediaAuthorUrl(), entry.getValue(), modifiers, "includes");
+                validCondition = true;
+            } else if (fieldName.equals("media_title")) {
+                matched = evaluateField(context.getMediaTitle(), entry.getValue(), modifiers, "includes-word");
+                validCondition = true;
+            } else if (fieldName.equals("media_description")) {
+                matched = evaluateField(context.getMediaDescription(), entry.getValue(), modifiers, "includes-word");
+                validCondition = true;
             }
 
             if (validCondition) {
@@ -216,6 +284,7 @@ public class AutoModEngine {
                 if (!matched) return false;
             }
         }
+        // A rule containing only `type:` is allowed and is treated as a match for that type.
         return hasCondition || rule.containsKey("type");
     }
 
@@ -224,6 +293,8 @@ public class AutoModEngine {
     }
 
     private boolean evaluateAuthor(Map<String, Object> authorBlock, AutoModContext context) {
+        // `satisfy_any_threshold` affects only threshold-like checks (age/karma).
+        // Non-threshold checks (like name/is_moderator/flair) are always ANDed.
         boolean satisfyAnyThreshold = false;
         Object satisfyAnyValue = authorBlock.get("satisfy_any_threshold");
         if (satisfyAnyValue instanceof Boolean) {
@@ -243,6 +314,7 @@ public class AutoModEngine {
                 continue;
             }
 
+            // Author sub-keys also support "(...)" modifier lists for string fields.
             String key = rawKey;
             String modifiers = "";
             int parenIndex = key.indexOf('(');
@@ -257,9 +329,16 @@ public class AutoModEngine {
             boolean matched = false;
             boolean isThresholdCondition = false;
             if (key.equals("name")) {
+                // Username matching is treated as full-exact (no partial usernames).
                 matched = evaluateField(context.getAuthor(), value, "full-exact", "full-exact");
             } else if (key.equals("is_moderator")) {
                 matched = evaluateBoolean(context.getIsModerator(), value);
+            } else if (key.equals("is_contributor")) {
+                matched = evaluateBoolean(context.getIsContributor(), value);
+            } else if (key.equals("is_submitter")) {
+                matched = evaluateBoolean(context.getIsSubmitter(), value);
+            } else if (key.equals("is_gold")) {
+                matched = evaluateBoolean(context.getIsGold(), value);
             } else if (key.equals("account_age")) {
                 matched = checkTimeThreshold(value, context.getAccountAge(), "days");
                 isThresholdCondition = true;
@@ -326,6 +405,8 @@ public class AutoModEngine {
     private boolean evaluateField(String text, Object patternsObj, String modifiersStr, String defaultModifier) {
         if (text == null) text = "";
         
+        // Modifiers are passed as a comma-separated string from "(...)" and are matched by substring.
+        // Example: "regex, case-sensitive" => both flags enabled.
         boolean caseSensitive = modifiersStr != null && modifiersStr.contains("case-sensitive");
         boolean isRegex = modifiersStr != null && modifiersStr.contains("regex");
         boolean exact = modifiersStr != null && modifiersStr.contains("full-exact");
@@ -336,6 +417,7 @@ public class AutoModEngine {
         boolean includesWord = modifiersStr != null && modifiersStr.contains("includes-word");
 
         if (!exact && !startsWith && !endsWith && !fullText && !includes && !includesWord && !isRegex) {
+            // If the rule didn't specify a matching mode, apply the field default.
             String def = defaultModifier != null ? defaultModifier : "includes-word";
             if (def.equals("full-exact")) exact = true;
             else if (def.contains("includes") && !def.equals("includes-word")) includes = true;
@@ -348,6 +430,7 @@ public class AutoModEngine {
         } else if (patternsObj instanceof String) {
             patterns = List.of(patternsObj);
         } else {
+            // We only support scalar or list-of-scalar patterns.
             return false;
         }
 
@@ -375,6 +458,7 @@ public class AutoModEngine {
             } else if (endsWith) {
                 if (haystack.endsWith(searchPattern)) return true;
             } else if (includesWord) {
+                // Word boundary match. We quote the pattern so rules can include punctuation safely.
                 String regex = "\\b" + Pattern.quote(searchPattern) + "\\b";
                 int flags = caseSensitive ? 0 : Pattern.CASE_INSENSITIVE;
                 try {
@@ -387,8 +471,79 @@ public class AutoModEngine {
         return false;
     }
 
+    private String stripBlockquotes(String text) {
+        if (text == null || text.isEmpty()) return "";
+        String[] lines = text.split("\\r?\\n");
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith(">")) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(line);
+        }
+        return sb.toString();
+    }
+
+    private boolean evaluateParentSubmission(Map<String, Object> parentBlock, AutoModContext context) {
+        Map<String, Object> parent = context.getParentSubmission();
+        if (parent == null) {
+            return false;
+        }
+
+        boolean hasCondition = false;
+        for (Map.Entry<String, Object> entry : parentBlock.entrySet()) {
+            String key = entry.getKey().toLowerCase(Locale.ROOT).trim();
+            Object expected = entry.getValue();
+            boolean matched = false;
+            boolean valid = false;
+
+            if (key.equals("title")) {
+                Object v = parent.get("title");
+                matched = evaluateField(v != null ? v.toString() : null, expected, "", "includes-word");
+                valid = true;
+            } else if (key.equals("body")) {
+                Object v = parent.get("body");
+                matched = evaluateField(v != null ? v.toString() : null, expected, "", "includes-word");
+                valid = true;
+            } else if (key.equals("domain")) {
+                Object v = parent.get("domain");
+                matched = evaluateField(v != null ? v.toString() : null, expected, "", "includes");
+                valid = true;
+            } else if (key.equals("url")) {
+                Object v = parent.get("url");
+                matched = evaluateField(v != null ? v.toString() : null, expected, "", "includes");
+                valid = true;
+            } else if (key.equals("id")) {
+                Object v = parent.get("id");
+                matched = evaluateField(v != null ? v.toString() : null, expected, "", "full-exact");
+                valid = true;
+            } else if (key.equals("flair_text")) {
+                Object v = parent.get("flair_text");
+                matched = evaluateField(v != null ? v.toString() : null, expected, "", "full-exact");
+                valid = true;
+            } else if (key.equals("flair_css_class")) {
+                Object v = parent.get("flair_css_class");
+                matched = evaluateField(v != null ? v.toString() : null, expected, "", "full-exact");
+                valid = true;
+            }
+
+            if (valid) {
+                hasCondition = true;
+                if (!matched) {
+                    return false;
+                }
+            }
+        }
+        return hasCondition;
+    }
+
     private boolean checkNumericThreshold(Object thresholdObj, Integer value) {
         if (thresholdObj == null || value == null) return false;
+        // Supports comparisons expressed as strings (e.g. "< 10", ">= 5") and also plain ints.
         String threshold = thresholdObj.toString().trim();
         try {
             if (threshold.startsWith("<=")) return value <= Integer.parseInt(threshold.substring(2).trim());
@@ -404,6 +559,8 @@ public class AutoModEngine {
 
     private boolean checkTimeThreshold(Object thresholdObj, Integer valueInDays, String defaultUnit) {
         if (thresholdObj == null || valueInDays == null) return false;
+        // Parses thresholds like "< 7 days", "> 1 month", "== 2 weeks".
+        // We keep the engine simple and convert units to approximate days.
         String threshold = thresholdObj.toString().trim().toLowerCase(Locale.ROOT);
         String operator = "==";
         if (threshold.startsWith("<=") || threshold.startsWith(">=") || threshold.startsWith("==")) {
