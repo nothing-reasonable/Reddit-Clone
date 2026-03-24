@@ -2,6 +2,7 @@ const MODERATION_SERVICE_URL = 'http://localhost:8084';
 
 export interface ModQueueItem {
   id: string;
+  postId?: string;
   type: string;
   status: string;
   flagReason: string;
@@ -262,3 +263,20 @@ export async function getAutoModHistory(token: string, subreddit: string): Promi
   const data = await response.json() as AutoModHistoryResponse;
   return data.data ?? [];
 }
+
+// ─── Direct Post Mod Actions (used from PostDetail) ───────────────────────────
+
+async function postModAction(token: string, subreddit: string, postId: string, action: string): Promise<void> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/mod-actions/${encodeURIComponent(postId)}/${action}`,
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) throw new Error(`Mod action '${action}' failed (${response.status})`);
+}
+
+export const lockPost    = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'lock');
+export const unlockPost  = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'unlock');
+export const pinPost     = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'pin');
+export const unpinPost   = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'unpin');
+export const removePost  = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'remove');
+export const restorePost = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'approve');
