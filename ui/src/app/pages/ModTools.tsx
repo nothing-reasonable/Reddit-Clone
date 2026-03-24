@@ -124,6 +124,12 @@ export default function ModTools() {
       description: 'Automated moderation rules',
     },
     {
+      label: 'Mod Mail',
+      icon: Mail,
+      path: `/r/${subreddit}/modmail`,
+      description: 'Message conversations with users',
+    },
+    {
       label: 'Community Settings',
       icon: Users,
       path: `/r/${subreddit}/mod/settings`,

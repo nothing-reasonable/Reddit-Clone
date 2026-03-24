@@ -22,9 +22,16 @@ public class AutoModContext {
     private Boolean isEdited;
     private Boolean isTopLevel;
     private Boolean isModerator;
+    private Boolean isContributor;
+    private Boolean isSubmitter;
+    private Boolean isGold;
     private Map<String, Object> parentSubmission;
     private Map<String, Object> mediaEmbed;
     private Map<String, Object> secureMediaEmbed;
+    private String mediaAuthor;
+    private String mediaAuthorUrl;
+    private String mediaTitle;
+    private String mediaDescription;
 
     // Getters and Setters
     public String getType() { return type; }
@@ -65,10 +72,24 @@ public class AutoModContext {
     public void setIsTopLevel(Boolean isTopLevel) { this.isTopLevel = isTopLevel; }
     public Boolean getIsModerator() { return isModerator; }
     public void setIsModerator(Boolean isModerator) { this.isModerator = isModerator; }
+    public Boolean getIsContributor() { return isContributor; }
+    public void setIsContributor(Boolean isContributor) { this.isContributor = isContributor; }
+    public Boolean getIsSubmitter() { return isSubmitter; }
+    public void setIsSubmitter(Boolean isSubmitter) { this.isSubmitter = isSubmitter; }
+    public Boolean getIsGold() { return isGold; }
+    public void setIsGold(Boolean isGold) { this.isGold = isGold; }
     public Map<String, Object> getParentSubmission() { return parentSubmission; }
     public void setParentSubmission(Map<String, Object> parentSubmission) { this.parentSubmission = parentSubmission; }
     public Map<String, Object> getMediaEmbed() { return mediaEmbed; }
     public void setMediaEmbed(Map<String, Object> mediaEmbed) { this.mediaEmbed = mediaEmbed; }
     public Map<String, Object> getSecureMediaEmbed() { return secureMediaEmbed; }
     public void setSecureMediaEmbed(Map<String, Object> secureMediaEmbed) { this.secureMediaEmbed = secureMediaEmbed; }
+    public String getMediaAuthor() { return mediaAuthor; }
+    public void setMediaAuthor(String mediaAuthor) { this.mediaAuthor = mediaAuthor; }
+    public String getMediaAuthorUrl() { return mediaAuthorUrl; }
+    public void setMediaAuthorUrl(String mediaAuthorUrl) { this.mediaAuthorUrl = mediaAuthorUrl; }
+    public String getMediaTitle() { return mediaTitle; }
+    public void setMediaTitle(String mediaTitle) { this.mediaTitle = mediaTitle; }
+    public String getMediaDescription() { return mediaDescription; }
+    public void setMediaDescription(String mediaDescription) { this.mediaDescription = mediaDescription; }
 }
