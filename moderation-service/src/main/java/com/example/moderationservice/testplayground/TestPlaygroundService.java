@@ -78,9 +78,16 @@ public class TestPlaygroundService {
             context.setIsEdited(scenario.getIsEdited());
             context.setIsTopLevel(scenario.getIsTopLevel());
             context.setIsModerator(scenario.getIsModerator());
+            context.setIsContributor(scenario.getIsContributor());
+            context.setIsSubmitter(scenario.getIsSubmitter());
+            context.setIsGold(scenario.getIsGold());
             context.setParentSubmission(scenario.getParentSubmission());
             context.setMediaEmbed(scenario.getMediaEmbed());
             context.setSecureMediaEmbed(scenario.getSecureMediaEmbed());
+            context.setMediaAuthor(scenario.getMediaAuthor());
+            context.setMediaAuthorUrl(scenario.getMediaAuthorUrl());
+            context.setMediaTitle(scenario.getMediaTitle());
+            context.setMediaDescription(scenario.getMediaDescription());
         } else {
             context.setTitle("");
             context.setBody("");

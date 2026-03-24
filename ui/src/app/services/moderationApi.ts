@@ -63,9 +63,16 @@ export interface TestScenario {
   isEdited?: boolean;
   isTopLevel?: boolean;
   isModerator?: boolean;
+  isContributor?: boolean;
+  isSubmitter?: boolean;
+  isGold?: boolean;
   parentSubmission?: Record<string, unknown>;
   mediaEmbed?: Record<string, unknown>;
   secureMediaEmbed?: Record<string, unknown>;
+  mediaAuthor?: string;
+  mediaAuthorUrl?: string;
+  mediaTitle?: string;
+  mediaDescription?: string;
 }
 
 export interface TestPlaygroundRequest {
