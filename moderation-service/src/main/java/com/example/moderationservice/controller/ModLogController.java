@@ -1,5 +1,4 @@
 package com.example.moderationservice.controller;
-
 import com.example.moderationservice.auth.ModeratorAuthService;
 import com.example.moderationservice.dto.ModLogResponse;
 import com.example.moderationservice.service.ModLogService;
@@ -9,7 +8,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
-@RequestMapping("/api/r/{subreddit}/modlog")
+@RequestMapping("/api/r/{subreddit}/mod-actions/log")
 @RequiredArgsConstructor
 public class ModLogController {
 

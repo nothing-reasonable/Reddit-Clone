@@ -2,13 +2,17 @@ package com.example.moderationservice.service;
 
 import com.example.moderationservice.dto.ModActionResponse;
 import com.example.moderationservice.dto.PostDto;
+
 import com.example.moderationservice.model.ModAction;
+import com.example.moderationservice.model.ModLog;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
 import java.time.LocalDateTime;
 
+@Slf4j
 @Service
 public class ModActionService {
 
@@ -59,22 +63,62 @@ public class ModActionService {
                 .build();
     }
 
+    public ModActionResponse executeCommentAction(String commentId, String postId, String action, String moderator, String subreddit) {
+        String url = contentServiceBaseUrl + "/api/internal/posts/" + postId + "/comments/" + commentId + "/" + action;
+
+        try {
+            PostDto updatedComment = restClient.patch()
+                    .uri(url)
+                    .retrieve()
+                    .body(PostDto.class);
+
+            if (updatedComment != null) {
+                // Log the action to modlog
+                logModAction(action, moderator, subreddit, updatedComment);
+
+                return ModActionResponse.builder()
+                        .postId(postId)
+                        .action(action)
+                        .moderator(moderator)
+                        .timestamp(LocalDateTime.now())
+                        .success(true)
+                        .postTitle("Comment by " + updatedComment.getAuthor())
+                        .postAuthor(updatedComment.getAuthor())
+                        .removed(updatedComment.isRemoved())
+                        .build();
+            }
+        } catch (Exception e) {
+            // Comment not found or error
+        }
+
+        return ModActionResponse.builder()
+                .postId(postId)
+                .action(action)
+                .moderator(moderator)
+                .timestamp(LocalDateTime.now())
+                .success(false)
+                .build();
+    }
+
     /**
      * Log the moderation action to the modlog database.
      */
     private void logModAction(String action, String moderator, String subreddit, PostDto post) {
         try {
             ModAction modAction = mapStringToModAction(action);
-            modLogService.logAction(
+            ModLog savedLog = modLogService.logAction(
                     subreddit,
                     moderator,
                     modAction,
                     post.getAuthor(),  // target user
-                    post.getId(),       // target content
+                    post.getTitle(),    // target content
                     null                // reason (caller can add via API)
             );
-        } catch (IllegalArgumentException ignored) {
-            // If action doesn't map to valid ModAction enum, skip logging
+            log.info("ModLog saved successfully: id={}, action={}, subreddit={}, moderator={}", 
+                    savedLog.getId(), modAction, subreddit, moderator);
+        } catch (Exception e) {
+            log.error("Failed to log moderation action: action={}, subreddit={}, moderator={}", 
+                    action, subreddit, moderator, e);
         }
     }
 

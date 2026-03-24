@@ -170,8 +170,14 @@ public class AutoModRuleService {
     }
 
     private AutoModHistoryEntryResponse toHistoryEntryResponse(AutoModRuleHistory history) {
+        // Try to fetch the rule name from the repository
+        String ruleName = repository.findById(history.getRuleId())
+                .map(AutoModRule::getName)
+                .orElse("[Deleted Rule]");
+        
         return new AutoModHistoryEntryResponse(
                 history.getRuleId(),
+                ruleName,
                 history.getAction(),
                 history.getModerator(),
                 history.getTimestamp(),

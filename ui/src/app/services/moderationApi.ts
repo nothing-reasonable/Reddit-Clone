@@ -120,7 +120,8 @@ export async function getModLog(token: string, subreddit: string): Promise<impor
     { headers: { Authorization: `Bearer ${token}` } }
   );
   if (!response.ok) throw new Error(`Failed to fetch mod log (${response.status})`);
-  const data = (await response.json()) as ModLogEntryDto[];
+  const responseData = await response.json() as { data: ModLogEntryDto[] };
+  const data = responseData.data || [];
   return data.map((entry) => ({
     id: entry.id,
     subreddit: entry.subreddit,
@@ -236,4 +237,28 @@ export async function deleteAutoModRule(token: string, subreddit: string, ruleId
     { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
   );
   if (!response.ok) throw new Error(`Failed to delete AutoMod rule (${response.status})`);
+}
+
+export interface AutoModHistoryEntry {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  action: string;
+  moderator: string;
+  timestamp: string;
+  changes?: Record<string, unknown>;
+}
+
+export interface AutoModHistoryResponse {
+  data: AutoModHistoryEntry[];
+}
+
+export async function getAutoModHistory(token: string, subreddit: string): Promise<AutoModHistoryEntry[]> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/v1/r/${encodeURIComponent(subreddit)}/automod/history`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) throw new Error(`Failed to fetch AutoMod history (${response.status})`);
+  const data = await response.json() as AutoModHistoryResponse;
+  return data.data ?? [];
 }

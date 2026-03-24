@@ -7,13 +7,16 @@ import com.example.moderationservice.model.ModAction;
 import com.example.moderationservice.model.ModLog;
 import com.example.moderationservice.repository.ModLogRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ModLogService {
@@ -24,6 +27,7 @@ public class ModLogService {
      * Log a moderation action to the database.
      * This is called whenever a moderator performs an action.
      */
+    @Transactional
     public ModLog logAction(String subreddit, String moderator, ModAction action,
                            String targetUser, String targetContent, String reason) {
         ModLog modLog = ModLog.builder()
@@ -35,6 +39,8 @@ public class ModLogService {
                 .reason(reason)
                 .build();
 
+        log.debug("Saving modlog: subreddit={}, moderator={}, action={}, targetUser={}", 
+                subreddit, moderator, action, targetUser);
         return modLogRepository.save(modLog);
     }
 
@@ -44,6 +50,9 @@ public class ModLogService {
      */
     public ModLogResponse getModLog(String subreddit, String actionFilter, String moderatorFilter,
                                    int limit, String after) {
+        log.info("getModLog called: subreddit={}, actionFilter={}, moderatorFilter={}, limit={}", 
+                subreddit, actionFilter, moderatorFilter, limit);
+                
         // Validate and cap limit
         int pageSize = Math.min(Math.max(limit, 1), 100);
         Pageable pageable = PageRequest.of(0, pageSize);
@@ -59,17 +68,22 @@ public class ModLogService {
         }
 
         // Query the database
+        log.info("Querying modlog for subreddit={}, action={}, moderator={}", subreddit, action, moderatorFilter);
         Page<ModLog> page = modLogRepository.findBySubredditWithFilters(
                 subreddit,
                 action,
                 moderatorFilter,
                 pageable);
 
+        log.info("Query returned {} results", page.getTotalElements());
+
         // Convert to DTOs
         List<ModLogEntryDto> entries = page.getContent()
                 .stream()
                 .map(this::convertToDto)
                 .toList();
+
+        log.info("Converted to {} DTOs", entries.size());
 
         // Build pagination info
         String nextCursor = page.hasNext() && !entries.isEmpty()

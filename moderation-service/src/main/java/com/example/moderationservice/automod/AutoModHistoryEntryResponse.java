@@ -5,6 +5,7 @@ import java.util.Map;
 
 public record AutoModHistoryEntryResponse(
         String ruleId,
+        String ruleName,
         String action,
         String moderator,
         Instant timestamp,
