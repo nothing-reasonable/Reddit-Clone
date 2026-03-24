@@ -129,7 +129,8 @@ public class ModActionService {
         return switch (action.toLowerCase()) {
             case "remove" -> ModAction.REMOVE_POST;
             case "approve" -> ModAction.APPROVE_POST;
-            case "lock", "unlock" -> ModAction.LOCK_POST;
+            case "lock" -> ModAction.LOCK_POST;
+            case "unlock" -> ModAction.UNLOCK_POST;
             case "pin" -> ModAction.PIN_POST;
             case "unpin" -> ModAction.UNPIN_POST;
             default -> throw new IllegalArgumentException("Unknown action: " + action);
