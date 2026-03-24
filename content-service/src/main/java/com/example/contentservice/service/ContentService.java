@@ -274,6 +274,7 @@ public class ContentService {
         }
         
         post.setReports(post.getReports() + 1);
+        post.setFlagged(true);
         postRepository.save(post);
     }
 
