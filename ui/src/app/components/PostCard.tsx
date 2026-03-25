@@ -1,13 +1,13 @@
-import { Link } from 'react-router';
-import { ArrowUp, ArrowDown, MessageSquare, Share2, Bookmark, Flag, Award, BookmarkCheck, X, Copy, ExternalLink, MessageCircle } from 'lucide-react';
+import { Link, useNavigate } from 'react-router';
+import { ArrowUp, ArrowDown, MessageSquare, Share2, Bookmark, Flag, Award, BookmarkCheck, X, Copy, ExternalLink, MessageCircle, MoreHorizontal, Trash2 } from 'lucide-react';
 import { getAwardEmoji } from '../utils/awards';
 import { formatNumber } from '../utils/format';
 import type { Post } from '../types/domain';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
-import { reportPost } from '../services/contentApi';
+import { deletePost, reportPost, votePost } from '../services/contentApi';
 
 const AWARDS_LIST = [
   { type: 'gold', emoji: '🥇', name: 'Gold', cost: 500, description: 'For outstanding content' },
@@ -34,27 +34,88 @@ interface PostCardProps {
 }
 
 export default function PostCard({ post, showSubreddit = true }: PostCardProps) {
+  const navigate = useNavigate();
   const { token, user } = useAuth();
 
   const reportedKey = user ? `reportedPosts_${user.username}` : null;
   const alreadyReported = reportedKey
     ? (JSON.parse(localStorage.getItem(reportedKey) ?? '[]') as string[]).includes(post.id)
     : false;
-  const [vote, setVote] = useState<'up' | 'down' | null>(null);
+  const alreadyReported = isPostFlaggedOrReported || wasReportedByUser;
+  const [userVote, setUserVote] = useState<-1 | 0 | 1>(0);
+  const [score, setScore] = useState(post.upvotes - post.downvotes);
+  const [isDeleted, setIsDeleted] = useState(post.author === '[deleted]');
+  const [isVoting, setIsVoting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showCreatorMenu, setShowCreatorMenu] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
   const [showAwardModal, setShowAwardModal] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState('');
-  const score = post.upvotes - post.downvotes + (vote === 'up' ? 1 : vote === 'down' ? -1 : 0);
+  useEffect(() => {
+    setScore(post.upvotes - post.downvotes);
+    setIsDeleted(post.author === '[deleted]');
+    setUserVote(user?.username === post.author ? 1 : 0);
+  }, [post, user?.username]);
 
   const postUrl = `${window.location.origin}/r/${post.subreddit}/comments/${post.id}`;
+  const canDeletePost = !!user && user.username === post.author && !isDeleted;
 
-  const handleVote = (type: 'up' | 'down', e: React.MouseEvent) => {
+  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest('a,button,input,textarea,select,label,[role="button"]')) {
+      return;
+    }
+    navigate(`/r/${post.subreddit}/comments/${post.id}`);
+  };
+
+  const handleVote = async (type: 'up' | 'down', e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
-    if (vote === type) setVote(null);
-    else setVote(type);
+
+    if (!token) {
+      toast.error('Please log in to vote');
+      return;
+    }
+
+    const intendedDirection: -1 | 1 = type === 'up' ? 1 : -1;
+    const nextDirection: -1 | 0 | 1 = userVote === intendedDirection ? 0 : intendedDirection;
+
+    setIsVoting(true);
+    try {
+      const newScore = await votePost(token, post.id, nextDirection);
+      setScore(newScore);
+      setUserVote(nextDirection);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to vote');
+    } finally {
+      setIsVoting(false);
+    }
+  };
+
+  const handleDeletePost = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!token || !canDeletePost) {
+      return;
+    }
+    if (!window.confirm('Delete this post?')) {
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      await deletePost(token, post.id);
+      setIsDeleted(true);
+      setShowCreatorMenu(false);
+      toast.success('Post deleted');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete post');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const handleSave = (e: React.MouseEvent) => {
@@ -111,33 +172,65 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
 
   return (
     <>
-      <div className={`bg-white border border-gray-300 rounded hover:border-gray-400 transition-colors ${post.removed ? 'opacity-50' : ''}`}>
+      <div
+        onClick={handleCardClick}
+        className={`bg-white border border-gray-300 rounded hover:border-gray-400 transition-colors cursor-pointer ${post.removed ? 'opacity-50' : ''}`}
+      >
         <div className="flex">
           {/* Vote Section */}
           <div className="flex flex-col items-center bg-gray-50 px-2 py-2 rounded-l gap-0.5">
             <button
               onClick={(e) => handleVote('up', e)}
+                disabled={isVoting}
               className={`p-1 rounded hover:bg-orange-100 transition-colors ${
-                vote === 'up' ? 'text-orange-500' : 'text-gray-400 hover:text-orange-500'
+                userVote === 1 ? 'text-orange-500' : 'text-gray-400 hover:text-orange-500'
               }`}
             >
-              <ArrowUp className="w-5 h-5" fill={vote === 'up' ? 'currentColor' : 'none'} />
+              <ArrowUp className="w-5 h-5" fill={userVote === 1 ? 'currentColor' : 'none'} />
             </button>
-            <span className={`text-xs font-bold ${vote === 'up' ? 'text-orange-500' : vote === 'down' ? 'text-blue-500' : 'text-gray-900'}`}>
+            <span className={`text-xs font-bold ${userVote === 1 ? 'text-orange-500' : userVote === -1 ? 'text-blue-500' : 'text-gray-900'}`}>
               {formatNumber(score)}
             </span>
             <button
               onClick={(e) => handleVote('down', e)}
+              disabled={isVoting}
               className={`p-1 rounded hover:bg-blue-100 transition-colors ${
-                vote === 'down' ? 'text-blue-500' : 'text-gray-400 hover:text-blue-500'
+                userVote === -1 ? 'text-blue-500' : 'text-gray-400 hover:text-blue-500'
               }`}
             >
-              <ArrowDown className="w-5 h-5" fill={vote === 'down' ? 'currentColor' : 'none'} />
+              <ArrowDown className="w-5 h-5" fill={userVote === -1 ? 'currentColor' : 'none'} />
             </button>
           </div>
 
           {/* Content Section */}
-          <div className="flex-1 p-2 pt-1.5 min-w-0">
+          <div className="flex-1 p-2 pt-1.5 min-w-0 relative">
+            {canDeletePost && (
+              <div className="absolute top-2 right-2 z-10">
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setShowCreatorMenu((prev) => !prev);
+                  }}
+                  className="p-1.5 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                  aria-label="Post actions"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+                {showCreatorMenu && (
+                  <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
+                    <button
+                      onClick={handleDeletePost}
+                      disabled={isDeleting}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 w-full text-left text-sm disabled:opacity-60"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                      {isDeleting ? 'Deleting...' : 'Delete Post'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             {/* Meta */}
             <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-1 flex-wrap">
               {showSubreddit && (
@@ -147,8 +240,8 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
               )}
               {showSubreddit && <span>&#8226;</span>}
               <span>Posted by</span>
-              <Link to={`/user/${post.author}`} className="hover:underline">
-                u/{post.author}
+              <Link to={`/user/${isDeleted ? '[deleted]' : post.author}`} className="hover:underline" onClick={(e) => e.stopPropagation()}>
+                u/{isDeleted ? '[deleted]' : post.author}
               </Link>
               <span>{formatDistanceToNow(post.createdAt, { addSuffix: true })}</span>
               {post.flagged && (
@@ -166,11 +259,9 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
             </div>
 
             {/* Title */}
-            <Link to={`/r/${post.subreddit}/comments/${post.id}`}>
-              <h2 className="text-base font-semibold mb-1 hover:text-blue-600 cursor-pointer leading-snug">
-                {post.title}
-              </h2>
-            </Link>
+            <h2 className="text-base font-semibold mb-1 hover:text-blue-600 leading-snug">
+              {isDeleted ? '[deleted]' : post.title}
+            </h2>
 
             {/* Flair + Awards */}
             <div className="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -192,7 +283,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
             </div>
 
             {/* Content Preview */}
-            <p className="text-sm text-gray-700 mb-2 line-clamp-3 leading-relaxed">{post.content}</p>
+            <p className="text-sm text-gray-700 mb-2 line-clamp-3 leading-relaxed">{isDeleted ? '[deleted]' : post.content}</p>
 
             {/* Action Buttons */}
             <div className="flex items-center gap-1 -ml-1.5 flex-wrap">

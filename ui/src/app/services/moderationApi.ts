@@ -88,6 +88,19 @@ export interface TestPlaygroundResponse {
   error: string | null;
 }
 
+export interface SavedRuleTestResult {
+  ruleId: string;
+  ruleName: string;
+  triggered: boolean;
+  action: string | null;
+  message: string | null;
+  error: string | null;
+}
+
+export interface SavedRulesTestResponse {
+  results: SavedRuleTestResult[];
+}
+
 export interface ModLogEntryDto {
   id: string;
   subreddit: string;
@@ -140,6 +153,27 @@ export async function testCustomRule(
   }
 
   return data as TestPlaygroundResponse;
+}
+
+export async function testSavedRules(
+  token: string,
+  request: { subredditName: string; scenario: TestScenario }
+): Promise<SavedRulesTestResponse> {
+  const response = await fetch(`${MODERATION_SERVICE_URL}/api/moderation/tests/saved`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(request),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || data.message || `Server error: ${response.status}`);
+  }
+
+  return data as SavedRulesTestResponse;
 }
 
 // ─── AutoMod Rule CRUD ────────────────────────────────────────────────────────

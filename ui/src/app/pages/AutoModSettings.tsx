@@ -10,8 +10,8 @@ import {
 import { toast } from 'sonner';
 import { formatDistanceToNow, format } from 'date-fns';
 import yaml from 'js-yaml';
-import { testCustomRule, getAutoModRules, createAutoModRule, updateAutoModRule, toggleAutoModRule, deleteAutoModRule } from '../services/moderationApi';
-import type { AutoModRuleDto } from '../services/moderationApi';
+import { testCustomRule, testSavedRules, getAutoModRules, createAutoModRule, updateAutoModRule, toggleAutoModRule, deleteAutoModRule, getAutoModHistory } from '../services/moderationApi';
+import type { AutoModRuleDto, AutoModHistoryEntry } from '../services/moderationApi';
 import { getSubredditByName } from '../services/subredditApi';
 import type { Subreddit } from '../types/domain';
 
@@ -575,44 +575,36 @@ export default function AutoModSettings() {
           }
         }
       } else {
-        const enabled = rules.filter((r) => r.enabled);
+        const response = await testSavedRules(token, {
+          subredditName: subreddit || '',
+          scenario,
+        });
 
-        const results = await Promise.allSettled(
-          enabled.map(async (rule) => {
-            const ruleYaml = rule.yamlContent || `type: any\naction: ${rule.action}`;
-            const result = await testCustomRule(token, {
-              subredditName: subreddit || '',
-              ruleYaml,
-              scenario,
-            });
-            return { rule, result };
-          })
-        );
-
-        for (const settled of results) {
-          if (settled.status === 'fulfilled') {
-            const { rule, result } = settled.value;
-            if (result.error) {
-              setTestError((prev) => prev ? `${prev}\n${rule.name}: ${result.error}` : `${rule.name}: ${result.error}`);
-            } else if (result.triggered) {
-              const normalizedAction = normalizeAction(result.action);
-              if (result.action && !isActionType(result.action)) {
-                setTestError((prev) =>
-                  prev
-                    ? `${prev}\n${rule.name}: Unsupported action "${result.action}". Falling back to "flag".`
-                    : `${rule.name}: Unsupported action "${result.action}". Falling back to "flag".`
-                );
-              }
-
-              matches.push({
-                rule: rule.name,
-                action: normalizedAction,
-                message: result.message || rule.messageToUser || undefined,
-              });
-            }
-          } else {
-            setTestError((prev) => prev ? `${prev}\nFailed to evaluate a rule` : 'Failed to evaluate a rule');
+        for (const result of response.results || []) {
+          if (result.error) {
+            const ruleName = result.ruleName || 'Unknown rule';
+            setTestError((prev) => prev ? `${prev}\n${ruleName}: ${result.error}` : `${ruleName}: ${result.error}`);
+            continue;
           }
+
+          if (!result.triggered) {
+            continue;
+          }
+
+          const normalizedAction = normalizeAction(result.action);
+          if (result.action && !isActionType(result.action)) {
+            setTestError((prev) =>
+              prev
+                ? `${prev}\n${result.ruleName}: Unsupported action "${result.action}". Falling back to "flag".`
+                : `${result.ruleName}: Unsupported action "${result.action}". Falling back to "flag".`
+            );
+          }
+
+          matches.push({
+            rule: result.ruleName,
+            action: normalizedAction,
+            message: result.message || undefined,
+          });
         }
       }
     } catch (err) {
