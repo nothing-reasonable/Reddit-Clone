@@ -29,6 +29,7 @@ public interface SubredditService {
     List<SubredditMemberDto> getMembers(String subredditName);
     List<SubredditMemberDto> getUserCommunities(String username);
     boolean isMember(String subredditName, String username);
+    long heartbeatPresence(String subredditName, String username, String clientSessionId);
 
     // Rules
     SubredditRuleDto addRule(String subredditName, SubredditRuleDto ruleDto);

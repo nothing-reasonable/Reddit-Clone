@@ -25,6 +25,7 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers(HttpMethod.GET, "/api/subreddits/user/communities").authenticated()
+                .requestMatchers(HttpMethod.POST, "/api/subreddits/*/presence").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/subreddits/**").permitAll()
                 .anyRequest().authenticated()
             )

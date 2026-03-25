@@ -4,6 +4,10 @@ server:
 spring:
   application:
     name: subreddit-service
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
   datasource:
     url: jdbc:postgresql://localhost:5433/subredditdb
     username: postgres
@@ -17,3 +21,7 @@ spring:
       hibernate:
         dialect: org.hibernate.dialect.PostgreSQLDialect
         format_sql: true
+
+presence:
+  ttl-ms: ${PRESENCE_TTL_MS:180000}
+  key-prefix: ${PRESENCE_KEY_PREFIX:presence:subreddit:}

@@ -123,6 +123,16 @@ public class SubredditController {
         return ResponseEntity.ok(new MemberCheckResponse(isMember));
     }
 
+    @PostMapping("/{name}/presence")
+    public ResponseEntity<Long> heartbeatPresence(
+            @PathVariable String name,
+            @RequestHeader(value = "X-Presence-Session", required = false) String presenceSession,
+            Authentication authentication
+    ) {
+        long onlineCount = subredditService.heartbeatPresence(name, authentication.getName(), presenceSession);
+        return ResponseEntity.ok(onlineCount);
+    }
+
     // ───── Bans ─────
 
     @PostMapping("/{name}/bans")

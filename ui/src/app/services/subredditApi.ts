@@ -27,6 +27,7 @@ interface SubredditDto {
   creatorUsername?: string;
   archived?: boolean;
   memberCount?: number;
+  onlineCount?: number;
   rules?: SubredditRuleDto[];
   flairs?: string[];
   moderators?: string[];
@@ -43,6 +44,21 @@ interface CreateSubredditRequest {
 const DEFAULT_BANNER =
   'https://images.unsplash.com/photo-1504608524841-42fe6f032b4b?w=1200';
 const DEFAULT_ICON = 'r/';
+const PRESENCE_SESSION_STORAGE_KEY = 'presence_session_id';
+
+function getPresenceSessionId(): string {
+  const existing = window.sessionStorage.getItem(PRESENCE_SESSION_STORAGE_KEY);
+  if (existing) {
+    return existing;
+  }
+
+  const random = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
+  window.sessionStorage.setItem(PRESENCE_SESSION_STORAGE_KEY, random);
+  return random;
+}
 
 function mapRules(rules: SubredditRuleDto[] | undefined): SubredditRule[] {
   if (!rules) return [];
@@ -56,6 +72,7 @@ function mapRules(rules: SubredditRuleDto[] | undefined): SubredditRule[] {
 function mapToSubreddit(dto: SubredditDto): Subreddit {
   const members = dto.memberCount ?? 0;
   const estimatedOnline = members > 0 ? Math.max(1, Math.floor(members * 0.01)) : 0;
+  const online = typeof dto.onlineCount === 'number' ? dto.onlineCount : estimatedOnline;
 
   return {
     id: dto.id,
@@ -63,7 +80,7 @@ function mapToSubreddit(dto: SubredditDto): Subreddit {
     description: dto.description ?? 'No description yet.',
     longDescription: dto.longDescription ?? dto.description ?? 'No description yet.',
     members,
-    online: estimatedOnline,
+    online,
     icon: DEFAULT_ICON,
     banner: dto.bannerUrl && dto.bannerUrl.trim() ? dto.bannerUrl : DEFAULT_BANNER,
     moderators: dto.moderators ?? [],
@@ -205,6 +222,29 @@ export async function requestSubredditTakeover(token: string, subredditName: str
   if (!response.ok) {
     throw new Error(await parseApiError(response));
   }
+}
+
+export async function heartbeatSubredditPresence(token: string, subredditName: string): Promise<number> {
+  const presenceSessionId = getPresenceSessionId();
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    'X-Presence-Session': presenceSessionId,
+  };
+
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/presence`,
+    {
+      method: 'POST',
+      headers,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const onlineCount = (await response.json()) as number;
+  return Number.isFinite(onlineCount) ? onlineCount : 0;
 }
 
 interface SubredditMemberDto {

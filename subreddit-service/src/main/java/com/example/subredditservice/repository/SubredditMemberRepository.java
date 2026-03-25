@@ -16,5 +16,6 @@ public interface SubredditMemberRepository extends JpaRepository<SubredditMember
     long countBySubredditId(Long subredditId);
     long countBySubredditIdAndRole(Long subredditId, MemberRole role);
     boolean existsBySubredditIdAndUsername(Long subredditId, String username);
+    boolean existsBySubredditIdAndUsernameIgnoreCase(Long subredditId, String username);
     List<SubredditMember> findBySubredditIdAndRole(Long subredditId, MemberRole role);
 }

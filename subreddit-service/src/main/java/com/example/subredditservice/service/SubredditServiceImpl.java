@@ -26,6 +26,7 @@ public class SubredditServiceImpl implements SubredditService {
     private final SubredditMemberRepository memberRepository;
     private final SubredditTakeoverRequestRepository takeoverRequestRepository;
     private final BannedMemberRepository bannedMemberRepository;
+    private final PresenceService presenceService;
 
     // ───── Subreddit CRUD ─────
 
@@ -265,6 +266,23 @@ public class SubredditServiceImpl implements SubredditService {
         return memberRepository.existsBySubredditIdAndUsername(subreddit.getId(), username);
     }
 
+    @Override
+    public long heartbeatPresence(String subredditName, String username, String clientSessionId) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        boolean isMember = memberRepository.existsBySubredditIdAndUsernameIgnoreCase(subreddit.getId(), username);
+        if (!isMember) {
+            return presenceService.countOnline(subreddit.getName());
+        }
+
+        String presenceMemberKey = (clientSessionId == null || clientSessionId.isBlank())
+                ? username
+                : username + ":" + clientSessionId;
+
+        return presenceService.touch(subreddit.getName(), presenceMemberKey);
+    }
+
     // ───── Rules ─────
 
     @Override
@@ -423,6 +441,7 @@ public class SubredditServiceImpl implements SubredditService {
 
     private SubredditDto mapToDto(Subreddit subreddit) {
         long memberCount = memberRepository.countBySubredditId(subreddit.getId());
+        long onlineCount = presenceService.countOnline(subreddit.getName());
 
         List<String> moderators = memberRepository
                 .findBySubredditIdAndRole(subreddit.getId(), MemberRole.MODERATOR)
@@ -446,6 +465,7 @@ public class SubredditServiceImpl implements SubredditService {
                 .creatorUsername(subreddit.getCreatorUsername())
                 .archived(subreddit.isArchived())
                 .memberCount(memberCount)
+                .onlineCount(onlineCount)
                 .rules(ruleDtos)
                 .flairs(subreddit.getFlairs())
                 .moderators(moderators)

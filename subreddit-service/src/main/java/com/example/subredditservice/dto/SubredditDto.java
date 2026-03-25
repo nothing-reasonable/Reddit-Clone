@@ -20,6 +20,7 @@ public class SubredditDto {
     private String creatorUsername;
     private boolean archived;
     private long memberCount;
+    private long onlineCount;
     private List<SubredditRuleDto> rules;
     private List<String> flairs;
     private List<String> moderators;
