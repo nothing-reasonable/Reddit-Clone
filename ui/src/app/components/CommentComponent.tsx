@@ -1,10 +1,10 @@
-import { ArrowUp, ArrowDown, MessageSquare, Flag, Trash2, Shield } from 'lucide-react';
-import type { Post } from '../types/domain';
+import { ArrowUp, ArrowDown, MessageSquare, Flag, Trash2, MoreHorizontal } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { reportComment } from '../services/commentApi';
+import { useAuth } from '../contexts/AuthContext';
 
 export type CommentNode = {
   id: string;
@@ -30,7 +30,8 @@ interface CommentComponentProps {
   isModerator?: boolean;
 }
 
-export default function CommentComponent({ node, onReply, onDelete, isModerator }: CommentComponentProps) {
+export default function CommentComponent({ node, onReply, onDelete, isModerator: _isModerator }: CommentComponentProps) {
+  const { user } = useAuth();
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [replyText, setReplyText] = useState('');
@@ -40,8 +41,10 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
   const [isReporting, setIsReporting] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState('');
+  const [showCommentMenu, setShowCommentMenu] = useState(false);
 
   const score = node.upvotes - node.downvotes + (vote === 'up' ? 1 : vote === 'down' ? -1 : 0);
+  const canDeleteComment = !!user && user.username === node.author;
 
   const handleVote = (type: 'up' | 'down') => {
     setVote(vote === type ? null : type);
@@ -126,7 +129,7 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
                 node={childNode} 
                 onReply={onReply}
                 onDelete={onDelete}
-                isModerator={isModerator}
+                isModerator={_isModerator}
               />
             ))}
           </div>
@@ -177,6 +180,32 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
             <span title={node.createdAt.toLocaleString()}>
               {formatDistanceToNow(node.createdAt, { addSuffix: true })}
             </span>
+            {canDeleteComment && onDelete && (
+              <div className="ml-auto relative">
+                <button
+                  onClick={() => setShowCommentMenu((prev) => !prev)}
+                  className="p-1 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                  aria-label="Comment actions"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+                {showCommentMenu && (
+                  <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                    <button
+                      onClick={async () => {
+                        await handleDelete();
+                        setShowCommentMenu(false);
+                      }}
+                      disabled={isDeleting}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 w-full text-left text-sm disabled:opacity-60"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                      {isDeleting ? 'Deleting...' : 'Delete Comment'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {!collapsed && (
@@ -211,16 +240,6 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
                     {(node.flagged || (node.reports ?? 0) > 0) ? 'Reported' : 'Report'}
                   </button>
                   
-                  {(isModerator || node.author === "moderator") && onDelete && (
-                    <button 
-                      onClick={handleDelete}
-                      disabled={isDeleting}
-                      className="opacity-0 group-hover/comment:opacity-100 flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 font-medium ml-1 transition-opacity"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Delete
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -259,7 +278,7 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
                       node={childNode} 
                       onReply={onReply}
                       onDelete={onDelete}
-                      isModerator={isModerator}
+                      isModerator={_isModerator}
                     />
                   ))}
                 </div>

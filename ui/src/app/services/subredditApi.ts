@@ -58,6 +58,7 @@ function mapToSubreddit(dto: SubredditDto): Subreddit {
   const estimatedOnline = members > 0 ? Math.max(1, Math.floor(members * 0.01)) : 0;
 
   return {
+    id: dto.id,
     name: dto.name,
     description: dto.description ?? 'No description yet.',
     longDescription: dto.longDescription ?? dto.description ?? 'No description yet.',

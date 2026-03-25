@@ -25,4 +25,4 @@ subreddit:
 
 services:
   moderation:
-    base-url: ${MODERATION_SERVICE_URL:http://moderation-service:8084}
+    base-url: ${MODERATION_SERVICE_URL:http://localhost:8084}

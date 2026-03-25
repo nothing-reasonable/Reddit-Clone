@@ -48,6 +48,7 @@ export interface SubredditRule {
 }
 
 export interface Subreddit {
+  id?: number;
   name: string;
   description: string;
   longDescription: string;

@@ -149,3 +149,37 @@ export async function createPost(
   const dto = (await response.json()) as ContentPostDto;
   return mapPost(dto);
 }
+
+export async function deletePost(token: string, postId: string): Promise<Post> {
+  const response = await fetch(`${CONTENT_SERVICE_URL}/api/posts/${encodeURIComponent(postId)}`, {
+    method: 'DELETE',
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const dto = (await response.json()) as ContentPostDto;
+  return mapPost(dto);
+}
+
+export async function votePost(token: string, postId: string, direction: -1 | 0 | 1): Promise<number> {
+  const response = await fetch(`${CONTENT_SERVICE_URL}/api/posts/${encodeURIComponent(postId)}/votes`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ direction }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const payload = (await response.json()) as { score: number };
+  return payload.score;
+}
