@@ -1,5 +1,4 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
-import { leaveSubredditPresence } from '../services/subredditApi';
 
 const USER_SERVICE_URL = 'http://localhost:8081';
 
@@ -17,7 +16,7 @@ interface AuthContextType {
   token: string | null;
   login: (username: string, password: string) => Promise<boolean>;
   signup: (username: string, email: string, password: string) => Promise<boolean>;
-  logout: () => Promise<void>;
+  logout: () => void;
   isAuthenticated: boolean;
 }
 
@@ -103,36 +102,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, [login]);
 
-  const logout = useCallback(async () => {
-    const activeToken = token;
-    const activeUsername = user?.username;
-
-    if (activeToken && activeUsername) {
-      const joinedSubredditsKey = `joinedSubreddits:${activeUsername}`;
-      const rawJoined = localStorage.getItem(joinedSubredditsKey);
-      if (rawJoined) {
-        try {
-          const joined = JSON.parse(rawJoined) as Array<{ name?: string }>;
-          const uniqueNames = Array.from(
-            new Set(joined.map((entry) => entry.name).filter((name): name is string => !!name))
-          );
-
-          await Promise.all(
-            uniqueNames.map((name) => leaveSubredditPresence(activeToken, name).catch(() => undefined))
-          );
-        } catch {
-          // Ignore malformed localStorage data.
-        }
-      }
-    }
-
+  const logout = useCallback(() => {
     setUser(null);
     setToken(null);
     localStorage.removeItem('jwtToken');
     localStorage.removeItem('redditUser');
     localStorage.removeItem('joinedSubreddits');
     localStorage.removeItem('pendingModApplications');
-  }, [token, user]);
+  }, []);
 
   return (
     <AuthContext.Provider value={{ user, token, login, signup, logout, isAuthenticated: !!token && !!user }}>
