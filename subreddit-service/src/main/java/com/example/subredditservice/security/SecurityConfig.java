@@ -24,6 +24,7 @@ public class SecurityConfig {
             .cors(Customizer.withDefaults())
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers(HttpMethod.GET, "/api/subreddits/user/communities").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/subreddits/**").permitAll()
                 .anyRequest().authenticated()
             )

@@ -95,6 +95,23 @@ public class SubredditClient {
         }
     }
 
+    /**
+     * Check if a user is banned from the given subreddit.
+     * Returns false if the check fails (non-fatal — fail open, ban check is best-effort).
+     */
+    public boolean isBanned(String subredditName, String username) {
+        try {
+            BannedCheckResponse response = restClient.get()
+                    .uri("/api/subreddits/{name}/is-banned/{username}", subredditName, username)
+                    .retrieve()
+                    .onStatus(HttpStatusCode::isError, (request, response2) -> {})
+                    .body(BannedCheckResponse.class);
+            return response != null && Boolean.TRUE.equals(response.getBanned());
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     @Data
     private static class SubredditLookupResponse {
         private Boolean archived;
@@ -103,5 +120,10 @@ public class SubredditClient {
     @Data
     private static class ModeratorCheckResponse {
         private Boolean moderator;
+    }
+
+    @Data
+    private static class BannedCheckResponse {
+        private Boolean banned;
     }
 }

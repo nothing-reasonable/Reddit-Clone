@@ -37,9 +37,13 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
   const { token, user } = useAuth();
 
   const reportedKey = user ? `reportedPosts_${user.username}` : null;
-  const alreadyReported = reportedKey
+  // Button is red if: post is flagged OR has reports, OR was reported by this user (from localStorage)
+  // After approval (flagged=false, reports=0), button turns gray regardless of localStorage
+  const isPostFlaggedOrReported = post.flagged || (post.reports ?? 0) > 0;
+  const wasReportedByUser = reportedKey
     ? (JSON.parse(localStorage.getItem(reportedKey) ?? '[]') as string[]).includes(post.id)
     : false;
+  const alreadyReported = isPostFlaggedOrReported || wasReportedByUser;
   const [vote, setVote] = useState<'up' | 'down' | null>(null);
   const [saved, setSaved] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -96,7 +100,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
     if (!reportReason) { toast.error('Please select a reason'); return; }
     if (!token) { toast.error('Please log in to report'); return; }
     try {
-      await reportPost(token, post.id);
+      await reportPost(token, post.id, reportReason);
       if (reportedKey) {
         const reported = JSON.parse(localStorage.getItem(reportedKey) ?? '[]') as string[];
         localStorage.setItem(reportedKey, JSON.stringify([...reported, post.id]));
@@ -230,13 +234,13 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (alreadyReported) {
-                    toast.warning('You have already reported this post.');
+                  if (isPostFlaggedOrReported) {
+                    toast.warning('This post is already flagged or reported.');
                   } else {
                     setShowReportModal(true);
                   }
                 }}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-gray-100 rounded text-xs font-semibold ${alreadyReported ? 'text-red-400 cursor-default' : 'text-gray-500'}`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-gray-100 rounded text-xs font-semibold ${isPostFlaggedOrReported ? 'text-red-400 cursor-default' : 'text-gray-500'}`}
               >
                 <Flag className="w-4 h-4" />
                 <span className="hidden sm:inline">Report</span>

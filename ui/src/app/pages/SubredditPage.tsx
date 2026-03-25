@@ -109,7 +109,11 @@ export default function SubredditPage() {
     return b.upvotes - a.upvotes;
   });
 
-  const joined = isJoined(subreddit || '');
+  const joined = isJoined(subreddit || '') || 
+    // If they're a moderator, they must be a member
+    (subredditData?.moderators ?? []).some(
+      (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
+    );
   const isModerator =
     (subredditData?.moderators ?? []).some(
       (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()

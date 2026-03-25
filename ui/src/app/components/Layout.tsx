@@ -5,12 +5,12 @@ import { Search, Bell, Plus, Menu, LogOut, User, Shield, X, TrendingUp, Home as 
 import { useState, useRef, useEffect } from 'react';
 import { formatNumber } from '../utils/format';
 import { formatDistanceToNow } from 'date-fns';
-import { getAllSubreddits } from '../services/subredditApi';
+import { getAllSubreddits, getUserCommunities } from '../services/subredditApi';
 import type { Notification, Subreddit } from '../types/domain';
 
 export default function Layout() {
-  const { user, logout, isAuthenticated } = useAuth();
-  const { joinedSubreddits } = useSubreddit();
+  const { user, logout, isAuthenticated, token } = useAuth();
+  const { joinedSubreddits, joinSubreddit } = useSubreddit();
   const navigate = useNavigate();
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [showSidebar, setShowSidebar] = useState(false);
@@ -26,12 +26,16 @@ export default function Layout() {
   const unreadCount = notifications.filter((n) => !n.read).length;
   const unreadDMs = 0;
 
+  // Fetch all subreddits
   useEffect(() => {
     let cancelled = false;
     async function loadSubreddits() {
       try {
         const data = await getAllSubreddits();
-        if (!cancelled) setSubreddits(data);
+        if (!cancelled) {
+          console.log('[Layout] Loaded subreddits:', data.map(s => `${s.name}(${s.id})`));
+          setSubreddits(data);
+        }
       } catch {
         if (!cancelled) setSubreddits([]);
       }
@@ -42,6 +46,41 @@ export default function Layout() {
       cancelled = true;
     };
   }, []);
+
+  // Fetch user communities when authenticated
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!isAuthenticated || !token || subreddits.length === 0) {
+      console.log('[Layout] Skipping communities load:', { isAuthenticated, hasToken: !!token, subredditsCount: subreddits.length });
+      return;
+    }
+
+    async function loadUserCommunities() {
+      try {
+        console.log('[Layout] Loading user communities...');
+        const communities = await getUserCommunities(token);
+        console.log('[Layout] Got communities:', communities.map(c => `SubId:${c.subredditId},Role:${c.role}`));
+        if (!cancelled && communities.length > 0) {
+          // Populate SubredditContext with user's communities
+          communities.forEach(community => {
+            const sub = subreddits.find(s => s.id === community.subredditId);
+            console.log(`[Layout] Matching subId ${community.subredditId}: found=${!!sub}, name=${sub?.name}`);
+            if (sub) {
+              joinSubreddit(sub.name, community.role === 'MODERATOR' ? 'moderator' : 'member');
+            }
+          });
+        }
+      } catch (err) {
+        console.error('[Layout] Failed to load user communities:', err);
+      }
+    }
+
+    void loadUserCommunities();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated, token, subreddits, joinSubreddit]);
 
   // Close dropdowns on outside click
   useEffect(() => {

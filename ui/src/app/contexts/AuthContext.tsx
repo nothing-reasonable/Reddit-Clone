@@ -107,6 +107,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     localStorage.removeItem('jwtToken');
     localStorage.removeItem('redditUser');
+    localStorage.removeItem('joinedSubreddits');
+    localStorage.removeItem('pendingModApplications');
   }, []);
 
   return (

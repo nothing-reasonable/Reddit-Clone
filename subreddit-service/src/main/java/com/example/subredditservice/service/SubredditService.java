@@ -6,6 +6,12 @@ import java.util.List;
 
 public interface SubredditService {
 
+    // Bans
+    BannedMemberDto banUser(String subredditName, BanRequest request, String moderatorUsername);
+    void unbanUser(String subredditName, String username);
+    List<BannedMemberDto> getBannedUsers(String subredditName);
+    boolean isBanned(String subredditName, String username);
+
     // Subreddit CRUD
     SubredditDto createSubreddit(CreateSubredditRequest request, String creatorUsername);
     SubredditDto getSubredditByName(String name);
@@ -21,6 +27,7 @@ public interface SubredditService {
     void resignModeratorRole(String subredditName, String username);
     void requestTakeover(String subredditName, String username);
     List<SubredditMemberDto> getMembers(String subredditName);
+    List<SubredditMemberDto> getUserCommunities(String username);
     boolean isMember(String subredditName, String username);
 
     // Rules

@@ -4,6 +4,7 @@ import com.example.subredditservice.dto.*;
 import com.example.subredditservice.exception.ResourceNotFoundException;
 import com.example.subredditservice.exception.SubredditAlreadyExistsException;
 import com.example.subredditservice.model.*;
+import com.example.subredditservice.repository.BannedMemberRepository;
 import com.example.subredditservice.repository.SubredditMemberRepository;
 import com.example.subredditservice.repository.SubredditRepository;
 import com.example.subredditservice.repository.SubredditRuleRepository;
@@ -24,6 +25,7 @@ public class SubredditServiceImpl implements SubredditService {
     private final SubredditRuleRepository ruleRepository;
     private final SubredditMemberRepository memberRepository;
     private final SubredditTakeoverRequestRepository takeoverRequestRepository;
+    private final BannedMemberRepository bannedMemberRepository;
 
     // ───── Subreddit CRUD ─────
 
@@ -250,6 +252,13 @@ public class SubredditServiceImpl implements SubredditService {
     }
 
     @Override
+    public List<SubredditMemberDto> getUserCommunities(String username) {
+        return memberRepository.findByUsername(username).stream()
+                .map(this::mapMemberToDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public boolean isMember(String subredditName, String username) {
         Subreddit subreddit = subredditRepository.findByName(subredditName)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
@@ -342,6 +351,74 @@ public class SubredditServiceImpl implements SubredditService {
         return mapToDto(updated);
     }
 
+    // ───── Bans ─────
+
+    @Override
+    @Transactional
+    public BannedMemberDto banUser(String subredditName, BanRequest request, String moderatorUsername) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        // Remove any existing ban first (re-ban with updated terms)
+        bannedMemberRepository.findBySubredditIdAndUsername(subreddit.getId(), request.getUsername())
+                .ifPresent(bannedMemberRepository::delete);
+
+        LocalDateTime expiresAt = null;
+        if (!request.isPermanent() && request.getDurationDays() != null && request.getDurationDays() > 0) {
+            expiresAt = LocalDateTime.now().plusDays(request.getDurationDays());
+        }
+
+        BannedMember ban = BannedMember.builder()
+                .subredditId(subreddit.getId())
+                .username(request.getUsername())
+                .bannedBy(moderatorUsername)
+                .reason(request.getReason())
+                .permanent(request.isPermanent())
+                .expiresAt(expiresAt)
+                .bannedAt(LocalDateTime.now())
+                .build();
+
+        BannedMember saved = bannedMemberRepository.save(ban);
+        return mapBanToDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public void unbanUser(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        if (!bannedMemberRepository.existsBySubredditIdAndUsername(subreddit.getId(), username)) {
+            throw new ResourceNotFoundException("User is not banned from r/" + subredditName);
+        }
+        bannedMemberRepository.deleteBySubredditIdAndUsername(subreddit.getId(), username);
+    }
+
+    @Override
+    public List<BannedMemberDto> getBannedUsers(String subredditName) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        return bannedMemberRepository.findBySubredditId(subreddit.getId()).stream()
+                .map(this::mapBanToDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public boolean isBanned(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        return bannedMemberRepository.findBySubredditIdAndUsername(subreddit.getId(), username)
+                .map(ban -> {
+                    // Permanent ban always applies
+                    if (ban.isPermanent()) return true;
+                    // Temporary ban: check if still active
+                    return ban.getExpiresAt() != null && ban.getExpiresAt().isAfter(LocalDateTime.now());
+                })
+                .orElse(false);
+    }
+
     // ───── Mapping helpers ─────
 
     private SubredditDto mapToDto(Subreddit subreddit) {
@@ -389,6 +466,18 @@ public class SubredditServiceImpl implements SubredditService {
                 .username(member.getUsername())
                 .role(member.getRole().name())
                 .joinedAt(member.getJoinedAt())
+                .build();
+    }
+
+    private BannedMemberDto mapBanToDto(BannedMember ban) {
+        return BannedMemberDto.builder()
+                .id(ban.getId())
+                .username(ban.getUsername())
+                .bannedBy(ban.getBannedBy())
+                .reason(ban.getReason())
+                .permanent(ban.isPermanent())
+                .expiresAt(ban.getExpiresAt())
+                .bannedAt(ban.getBannedAt())
                 .build();
     }
 }

@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/r/{subreddit}/automod")
+@RequestMapping({"/api/v1/r/{subreddit}/automod", "/r/{subreddit}/automod"})
 public class AutoModRuleController {
 
     private final AutoModRuleService service;
@@ -25,6 +25,13 @@ public class AutoModRuleController {
             @AuthenticationPrincipal String username) {
         List<AutoModRule> rules = service.getRules(subreddit, username);
         return ResponseEntity.ok(Map.of("data", rules));
+    }
+
+    @GetMapping("/history")
+    public ResponseEntity<AutoModHistoryResponse> getHistory(
+            @PathVariable String subreddit,
+            @AuthenticationPrincipal String username) {
+        return ResponseEntity.ok(service.getHistory(subreddit, username));
     }
 
     @PostMapping("/rules")
