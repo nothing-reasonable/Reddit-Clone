@@ -3,7 +3,7 @@ import { ArrowUp, ArrowDown, MessageSquare, Share2, Bookmark, Flag, Award, Bookm
 import { getAwardEmoji } from '../utils/awards';
 import { formatNumber } from '../utils/format';
 import type { Post } from '../types/domain';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEvent } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
@@ -38,10 +38,10 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
   const { token, user } = useAuth();
 
   const reportedKey = user ? `reportedPosts_${user.username}` : null;
-  const alreadyReported = reportedKey
+  const wasReportedByUser = reportedKey
     ? (JSON.parse(localStorage.getItem(reportedKey) ?? '[]') as string[]).includes(post.id)
     : false;
-  const alreadyReported = isPostFlaggedOrReported || wasReportedByUser;
+  const alreadyReported = !!post.flagged || wasReportedByUser;
   const [userVote, setUserVote] = useState<-1 | 0 | 1>(0);
   const [score, setScore] = useState(post.upvotes - post.downvotes);
   const [isDeleted, setIsDeleted] = useState(post.author === '[deleted]');
@@ -62,7 +62,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
   const postUrl = `${window.location.origin}/r/${post.subreddit}/comments/${post.id}`;
   const canDeletePost = !!user && user.username === post.author && !isDeleted;
 
-  const handleCardClick = (e: React.MouseEvent<HTMLDivElement>) => {
+  const handleCardClick = (e: MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
     if (target.closest('a,button,input,textarea,select,label,[role="button"]')) {
       return;
@@ -70,7 +70,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
     navigate(`/r/${post.subreddit}/comments/${post.id}`);
   };
 
-  const handleVote = async (type: 'up' | 'down', e: React.MouseEvent) => {
+  const handleVote = async (type: 'up' | 'down', e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -94,7 +94,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
     }
   };
 
-  const handleDeletePost = async (e: React.MouseEvent) => {
+  const handleDeletePost = async (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
 
@@ -118,7 +118,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
     }
   };
 
-  const handleSave = (e: React.MouseEvent) => {
+  const handleSave = (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setSaved(!saved);

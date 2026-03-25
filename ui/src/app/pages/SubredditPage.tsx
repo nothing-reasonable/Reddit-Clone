@@ -388,7 +388,7 @@ export default function SubredditPage() {
                       }}
                       className="flex items-center gap-2 w-full text-left px-4 py-2 hover:bg-gray-100 text-sm"
                     >
-                      <Mail className="w-4 h-4" /> Message User as Mod
+                      <Mail className="w-4 h-4" /> Send Modmail
                     </button>
                     <Link to={`/r/${subreddit}/mod/settings`} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-sm" onClick={() => setShowModTools(false)}>
                       <Users className="w-4 h-4" /> Community Settings

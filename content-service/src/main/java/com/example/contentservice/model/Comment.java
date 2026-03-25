@@ -26,6 +26,9 @@ public class Comment {
     
     @Column(name = "post_id", nullable = false)
     private String postId;
+
+    @Column(nullable = false)
+    private String subreddit;
     
     @Column(name = "parent_id")
     private String parentId; // null for top-level comments
