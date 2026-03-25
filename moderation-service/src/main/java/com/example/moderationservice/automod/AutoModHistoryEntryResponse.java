@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.util.Map;
 
 public record AutoModHistoryEntryResponse(
+        String id,
         String ruleId,
         String ruleName,
         String action,

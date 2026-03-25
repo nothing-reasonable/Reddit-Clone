@@ -1,5 +1,6 @@
 package com.example.moderationservice.controller;
 
+import com.example.moderationservice.automod.AutoModLogService;
 import com.example.moderationservice.automod.AutoModRule;
 import com.example.moderationservice.automod.AutoModRuleRepository;
 import com.example.moderationservice.engine.AutoModContext;
@@ -8,6 +9,7 @@ import com.example.moderationservice.engine.AutoModResult;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -20,21 +22,26 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/internal/automod")
+@Slf4j
 public class AutoModControllerInternal {
 
     private final AutoModEngine autoModEngine;
     private final AutoModRuleRepository autoModRuleRepository;
+    private final AutoModLogService autoModLogService;
     private final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
 
     public AutoModControllerInternal(AutoModEngine autoModEngine,
-                                     AutoModRuleRepository autoModRuleRepository) {
+                                     AutoModRuleRepository autoModRuleRepository,
+                                     AutoModLogService autoModLogService) {
         this.autoModEngine = autoModEngine;
         this.autoModRuleRepository = autoModRuleRepository;
+        this.autoModLogService = autoModLogService;
     }
 
     /**
      * Evaluate a single AutoMod rule against content context.
      * Called by content-service when a post is created.
+     * If the rule triggers and includes rule metadata, logs the action.
      */
     @PostMapping("/evaluate")
     public AutoModEvaluationResponse evaluateRule(@RequestBody AutoModEvaluationRequest request) {
@@ -43,8 +50,36 @@ public class AutoModControllerInternal {
                     new TypeReference<Map<String, Object>>() {});
             AutoModContext context = buildContextFromMap(request.getContext());
             AutoModResult result = autoModEngine.evaluateRule(rule, context);
+
+            // Log the action if the rule was triggered and we have rule metadata
+            if (result.isTriggered() && request.getRuleId() != null && request.getSubredditName() != null) {
+                log.info("AutoMod rule triggered: {} in r/{}, action: {}", 
+                    request.getRuleName(), request.getSubredditName(), result.getAction());
+                
+                // Extract context details for logging
+                String targetType = context.getType() != null ? 
+                    (context.getType().toLowerCase().contains("comment") ? "comment" : "post") : "post";
+                String targetId = context.getId() != null ? context.getId() : "unknown";
+                String targetAuthor = context.getAuthor() != null ? context.getAuthor() : "unknown";
+                String reason = result.getMessage() != null ? result.getMessage() : 
+                    (request.getRuleName() != null ? request.getRuleName() : "AutoMod rule triggered");
+
+                // Log the action persistently
+                autoModLogService.logAction(
+                    request.getSubredditName(),
+                    request.getRuleId(),
+                    request.getRuleName(),
+                    result.getAction(),
+                    targetType,
+                    targetId,
+                    targetAuthor,
+                    reason
+                );
+            }
+
             return new AutoModEvaluationResponse(result.isTriggered(), result.getAction(), result.getMessage());
         } catch (Exception e) {
+            log.error("Error evaluating AutoMod rule: {}", e.getMessage());
             return new AutoModEvaluationResponse(false, "error", "Rule evaluation failed: " + e.getMessage());
         }
     }
@@ -86,6 +121,10 @@ public class AutoModControllerInternal {
             context.setType((String) contextMap.get("type"));
         if (contextMap.containsKey("flair_text"))
             context.setFlair((String) contextMap.get("flair_text"));
+        if (contextMap.containsKey("subreddit"))
+            context.setSubreddit((String) contextMap.get("subreddit"));
+        if (contextMap.containsKey("id"))
+            context.setId((String) contextMap.get("id"));
 
         Object karma = contextMap.get("author_karma");
         if (karma instanceof Integer) context.setKarma((Integer) karma);
@@ -109,16 +148,34 @@ public class AutoModControllerInternal {
     public static class AutoModEvaluationRequest {
         private String ruleYaml;
         private Map<String, Object> context;
+        private String ruleId;        // Rule ID for logging
+        private String ruleName;      // Rule name for logging
+        private String subredditName; // Subreddit for logging
 
         public AutoModEvaluationRequest() {}
         public AutoModEvaluationRequest(String ruleYaml, Map<String, Object> context) {
             this.ruleYaml = ruleYaml;
             this.context = context;
         }
+        public AutoModEvaluationRequest(String ruleYaml, Map<String, Object> context, 
+                                       String ruleId, String ruleName, String subredditName) {
+            this.ruleYaml = ruleYaml;
+            this.context = context;
+            this.ruleId = ruleId;
+            this.ruleName = ruleName;
+            this.subredditName = subredditName;
+        }
+
         public String getRuleYaml() { return ruleYaml; }
         public void setRuleYaml(String ruleYaml) { this.ruleYaml = ruleYaml; }
         public Map<String, Object> getContext() { return context; }
         public void setContext(Map<String, Object> context) { this.context = context; }
+        public String getRuleId() { return ruleId; }
+        public void setRuleId(String ruleId) { this.ruleId = ruleId; }
+        public String getRuleName() { return ruleName; }
+        public void setRuleName(String ruleName) { this.ruleName = ruleName; }
+        public String getSubredditName() { return subredditName; }
+        public void setSubredditName(String subredditName) { this.subredditName = subredditName; }
     }
 
     public static class AutoModEvaluationResponse {

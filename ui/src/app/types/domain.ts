@@ -74,6 +74,18 @@ export interface ModLogEntry {
   timestamp: Date;
 }
 
+export interface AutoModLogEntry {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  action: string;
+  targetType: string; // 'post' or 'comment'
+  targetId: string;
+  targetAuthor: string;
+  reason?: string;
+  timestamp: Date;
+}
+
 export interface BannedUser {
   username: string;
   subreddit: string;

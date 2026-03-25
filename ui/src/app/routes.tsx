@@ -15,6 +15,7 @@ import ModQueue from './pages/ModQueue';
 import AutoModSettings from './pages/AutoModSettings';
 import ModTools from './pages/ModTools';
 import ModLog from './pages/ModLog';
+import AutoModLogs from './pages/AutoModLogs';
 import BannedUsers from './pages/BannedUsers';
 import ModMailPage from './pages/ModMailPage';
 import MessagingPage from './pages/MessagingPage';
@@ -63,6 +64,7 @@ export const router = createBrowserRouter([
           { path: 'r/:subreddit/modqueue', element: <ModQueue /> },
           { path: 'r/:subreddit/automod', element: <AutoModSettings /> },
           { path: 'r/:subreddit/mod/log', element: <ModLog /> },
+          { path: 'r/:subreddit/automod/logs', element: <AutoModLogs /> },
           { path: 'r/:subreddit/mod/banned', element: <BannedUsers /> },
           { path: 'r/:subreddit/modmail', element: <ModMailPage /> },
           { path: 'r/:subreddit/modmai', element: <Navigate to="../modmail" replace /> },

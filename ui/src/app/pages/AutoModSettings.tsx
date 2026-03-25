@@ -195,6 +195,99 @@ function emptyRule(editor: string): RichAutoModRule {
   };
 }
 
+const HISTORY_ACTION_LABELS: Record<string, string> = {
+  created: 'Created',
+  updated: 'Updated',
+  modified: 'Modified',
+  toggled: 'Toggled',
+  deleted: 'Deleted',
+};
+
+const HISTORY_ACTION_BADGE_CLASSES: Record<string, string> = {
+  created: 'bg-emerald-100 text-emerald-700',
+  updated: 'bg-blue-100 text-blue-700',
+  modified: 'bg-blue-100 text-blue-700',
+  toggled: 'bg-amber-100 text-amber-700',
+  deleted: 'bg-rose-100 text-rose-700',
+};
+
+const HISTORY_ACTION_ICON_CLASSES: Record<string, string> = {
+  created: 'bg-emerald-100 text-emerald-600',
+  updated: 'bg-blue-100 text-blue-600',
+  modified: 'bg-blue-100 text-blue-600',
+  toggled: 'bg-amber-100 text-amber-600',
+  deleted: 'bg-rose-100 text-rose-600',
+};
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function getHistoryRuleName(entry: AutoModHistoryEntry): string {
+  if (entry.ruleName && entry.ruleName !== '[Deleted Rule]') {
+    return entry.ruleName;
+  }
+
+  const changes = asObject(entry.changes);
+  if (!changes) return entry.ruleName || '[Deleted Rule]';
+
+  const deletedRule = asObject(changes.deletedRule);
+  if (deletedRule?.name && typeof deletedRule.name === 'string') return deletedRule.name;
+
+  const after = asObject(changes.after);
+  if (after?.name && typeof after.name === 'string') return after.name;
+
+  const before = asObject(changes.before);
+  if (before?.name && typeof before.name === 'string') return before.name;
+
+  if (typeof changes.name === 'string') return changes.name;
+  return entry.ruleName || '[Deleted Rule]';
+}
+
+function getHistorySummary(entry: AutoModHistoryEntry): string[] {
+  const changes = asObject(entry.changes);
+  if (!changes) return [];
+
+  if (entry.action === 'created') {
+    const name = typeof changes.name === 'string' ? changes.name : null;
+    const enabled = typeof changes.enabled === 'boolean' ? changes.enabled : null;
+    return [
+      name ? `Rule name: ${name}` : 'Rule created',
+      enabled === null ? '' : `Initial state: ${enabled ? 'Enabled' : 'Disabled'}`,
+    ].filter(Boolean);
+  }
+
+  if (entry.action === 'updated' || entry.action === 'modified') {
+    const before = asObject(changes.before);
+    const after = asObject(changes.after);
+    const lines: string[] = ['Rule configuration updated'];
+
+    if (before && after && typeof before.name === 'string' && typeof after.name === 'string' && before.name !== after.name) {
+      lines.push(`Renamed: ${before.name} -> ${after.name}`);
+    }
+    return lines;
+  }
+
+  if (entry.action === 'toggled') {
+    const beforeEnabled = typeof changes.beforeEnabled === 'boolean' ? changes.beforeEnabled : null;
+    const afterEnabled = typeof changes.afterEnabled === 'boolean' ? changes.afterEnabled : null;
+    if (beforeEnabled !== null && afterEnabled !== null) {
+      return [`Status changed: ${beforeEnabled ? 'Enabled' : 'Disabled'} -> ${afterEnabled ? 'Enabled' : 'Disabled'}`];
+    }
+    return ['Rule status changed'];
+  }
+
+  if (entry.action === 'deleted') {
+    const deletedRule = asObject(changes.deletedRule);
+    if (deletedRule && typeof deletedRule.name === 'string') {
+      return [`Deleted rule: ${deletedRule.name}`];
+    }
+    return ['Rule deleted'];
+  }
+
+  return [];
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────────
 
 export default function AutoModSettings() {
@@ -861,42 +954,23 @@ export default function AutoModSettings() {
               </div>
             ) : (
               history.map((entry) => (
-                <div key={entry.id} className="px-6 py-4 flex items-start gap-4 hover:bg-gray-50">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-0.5">
-                    <History className="w-4 h-4 text-blue-600" />
+                <div key={entry.id || `${entry.ruleId}-${entry.timestamp}-${entry.action}`} className="px-6 py-4 flex items-start gap-4 hover:bg-gray-50">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${HISTORY_ACTION_ICON_CLASSES[entry.action] || 'bg-gray-100 text-gray-600'}`}>
+                    <History className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="font-semibold text-sm">{entry.ruleName}</span>
-                      <span className="px-2 py-0.5 text-[11px] bg-blue-100 rounded text-blue-700 font-medium">
-                        {(entry.action === 'created' && 'Created') ||
-                         (entry.action === 'modified' && 'Modified') ||
-                         (entry.action === 'deleted' && 'Deleted') ||
-                         entry.action.charAt(0).toUpperCase() + entry.action.slice(1)}
+                      <span className="font-semibold text-sm">{getHistoryRuleName(entry)}</span>
+                      <span className={`px-2 py-0.5 text-[11px] rounded font-medium ${HISTORY_ACTION_BADGE_CLASSES[entry.action] || 'bg-gray-100 text-gray-700'}`}>
+                        {HISTORY_ACTION_LABELS[entry.action] ||
+                          entry.action.charAt(0).toUpperCase() + entry.action.slice(1)}
                       </span>
                     </div>
-                    {entry.changes && Object.keys(entry.changes).length > 0 && (
+                    {getHistorySummary(entry).length > 0 && (
                       <div className="text-xs mb-1 space-y-0.5">
-                        {Object.entries(entry.changes).map(([key, change]: [string, unknown]) => {
-                          const changeObj = change as Record<string, unknown>;
-                          return (
-                            <div key={key}>
-                              <div className="text-gray-600 font-medium capitalize">{key}:</div>
-                              {(changeObj.before || changeObj.old_value) && (
-                                <div className="flex items-start gap-1.5">
-                                  <span className="text-red-400 shrink-0">&minus;</span>
-                                  <span className="text-gray-500 line-through break-all">{String(changeObj.before || changeObj.old_value)}</span>
-                                </div>
-                              )}
-                              {(changeObj.after || changeObj.new_value) && (
-                                <div className="flex items-start gap-1.5">
-                                  <span className="text-green-500 shrink-0">+</span>
-                                  <span className="text-gray-700 break-all">{String(changeObj.after || changeObj.new_value)}</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                        {getHistorySummary(entry).map((line) => (
+                          <div key={line} className="text-gray-600">{line}</div>
+                        ))}
                       </div>
                     )}
                     <div className="text-[11px] text-gray-400 mt-1">
