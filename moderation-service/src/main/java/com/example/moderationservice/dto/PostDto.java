@@ -20,7 +20,6 @@ public class PostDto {
     private LocalDateTime editedAt;
     private String flair;
     private int reports;
-    private String reportReasons; // JSON array of report reasons
     private boolean removed;
     private boolean locked;
     private boolean pinned;

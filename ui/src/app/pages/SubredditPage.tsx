@@ -15,6 +15,7 @@ import {
   requestSubredditTakeover,
 } from '../services/subredditApi';
 import { getSubredditPosts } from '../services/contentApi';
+import { createConversation, createApplication } from '../services/messagingApi';
 import type { Post, Subreddit } from '../types/domain';
 
 type TopDuration = 'hour' | 'day' | 'week' | 'month' | 'year' | 'all';
@@ -32,6 +33,10 @@ export default function SubredditPage() {
   const [membershipUpdating, setMembershipUpdating] = useState(false);
   const [takeoverRequesting, setTakeoverRequesting] = useState(false);
   const [takeoverRequested, setTakeoverRequested] = useState(false);
+  const [showModMessageModal, setShowModMessageModal] = useState(false);
+  const [modMessageRecipient, setModMessageRecipient] = useState('');
+  const [modMessageBody, setModMessageBody] = useState('');
+  const [sendingModMessage, setSendingModMessage] = useState(false);
   const { user, isAuthenticated, token } = useAuth();
   const {
     joinSubreddit,
@@ -109,11 +114,7 @@ export default function SubredditPage() {
     return b.upvotes - a.upvotes;
   });
 
-  const joined = isJoined(subreddit || '') || 
-    // If they're a moderator, they must be a member
-    (subredditData?.moderators ?? []).some(
-      (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
-    );
+  const joined = isJoined(subreddit || '');
   const isModerator =
     (subredditData?.moderators ?? []).some(
       (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
@@ -203,11 +204,38 @@ export default function SubredditPage() {
     }
   };
 
-  const handleApplyModerator = () => {
-    if (!isAuthenticated) { toast.error('Please log in to apply as moderator'); return; }
+  const handleApplyModerator = async () => {
+    if (!isAuthenticated || !token) { toast.error('Please log in to apply as moderator'); return; }
     if (!joined) { toast.error('You must be a member to apply as moderator'); return; }
-    applyAsModerator(subreddit || '');
-    toast.success('Application submitted!');
+    if (!subreddit) return;
+    try {
+      await createApplication(token, subreddit);
+      applyAsModerator(subreddit || '');
+      toast.success('Application submitted!');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to submit application');
+    }
+  };
+
+  const handleSendModMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token || !subreddit) return;
+    if (!modMessageRecipient.trim() || !modMessageBody.trim()) {
+      toast.error('Recipient and message body are required.');
+      return;
+    }
+    setSendingModMessage(true);
+    try {
+      await createConversation(token, modMessageRecipient, modMessageBody, subreddit);
+      toast.success('Message sent successfully!');
+      setShowModMessageModal(false);
+      setModMessageRecipient('');
+      setModMessageBody('');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to send message');
+    } finally {
+      setSendingModMessage(false);
+    }
   };
 
   if (loadingSubreddit) {
@@ -353,9 +381,15 @@ export default function SubredditPage() {
                     <Link to={`/r/${subreddit}/automod`} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-sm" onClick={() => setShowModTools(false)}>
                       <Settings className="w-4 h-4" /> AutoMod
                     </Link>
-                    <Link to={`/r/${subreddit}/modmail`} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-sm" onClick={() => setShowModTools(false)}>
-                      <Mail className="w-4 h-4" /> Mod Mail
-                    </Link>
+                    <button
+                      onClick={() => {
+                        setShowModTools(false);
+                        setShowModMessageModal(true);
+                      }}
+                      className="flex items-center gap-2 w-full text-left px-4 py-2 hover:bg-gray-100 text-sm"
+                    >
+                      <Mail className="w-4 h-4" /> Message User as Mod
+                    </button>
                     <Link to={`/r/${subreddit}/mod/settings`} className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 text-sm" onClick={() => setShowModTools(false)}>
                       <Users className="w-4 h-4" /> Community Settings
                     </Link>
@@ -551,13 +585,23 @@ export default function SubredditPage() {
                   Wiki
                 </Link>
                 {isAuthenticated && (
-                  <Link
-                    to={`/r/${subreddit}/modmail`}
-                    className="flex items-center gap-2 text-xs text-blue-500 hover:underline"
-                  >
-                    <Mail className="w-3.5 h-3.5" />
-                    {isModerator ? 'Mod Mail' : 'Messages'}
-                  </Link>
+                  isModerator ? (
+                    <button
+                      onClick={() => setShowModMessageModal(true)}
+                      className="flex items-center gap-2 text-xs text-blue-500 hover:underline text-left"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      Mod Mail
+                    </button>
+                  ) : (
+                    <Link
+                      to="/messages"
+                      className="flex items-center gap-2 text-xs text-blue-500 hover:underline"
+                    >
+                      <Mail className="w-3.5 h-3.5" />
+                      Messages
+                    </Link>
+                  )
                 )}
               </div>
             </div>
@@ -600,6 +644,60 @@ export default function SubredditPage() {
           </div>
         </aside>
       </div>
+
+      {/* Mod Message Modal */}
+      {showModMessageModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full shadow-xl">
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              <Mail className="w-5 h-5 text-blue-500" />
+              Message User as r/{subreddit}
+            </h2>
+            <form onSubmit={handleSendModMessage}>
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Recipient (User or Subreddit)</label>
+                <input
+                  type="text"
+                  value={modMessageRecipient}
+                  onChange={(e) => setModMessageRecipient(e.target.value)}
+                  className="w-full border border-gray-300 rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. ravens"
+                  disabled={sendingModMessage}
+                  required
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-gray-700 mb-1">Message</label>
+                <textarea
+                  value={modMessageBody}
+                  onChange={(e) => setModMessageBody(e.target.value)}
+                  className="w-full border border-gray-300 rounded p-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px]"
+                  placeholder={`Write a message acting as r/${subreddit}...`}
+                  disabled={sendingModMessage}
+                  required
+                />
+              </div>
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowModMessageModal(false)}
+                  className="px-4 py-2 border border-gray-300 rounded text-sm font-semibold hover:bg-gray-50"
+                  disabled={sendingModMessage}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-blue-500 text-white rounded text-sm font-semibold hover:bg-blue-600 disabled:opacity-50"
+                  disabled={sendingModMessage}
+                >
+                  {sendingModMessage ? 'Sending...' : 'Send Message'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

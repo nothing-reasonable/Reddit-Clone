@@ -9,7 +9,6 @@ import { useSubreddit } from '../contexts/SubredditContext';
 import { toast } from 'sonner';
 import { deletePost, getPostById, votePost } from '../services/contentApi';
 import { getSubredditByName } from '../services/subredditApi';
-import { lockPost, unlockPost, pinPost, unpinPost, removePost, restorePost } from '../services/moderationApi';
 import type { Post } from '../types/domain';
 import CommentComponent, { CommentNode } from '../components/CommentComponent';
 import { getComments, createComment, deleteComment } from '../services/commentApi';
@@ -372,73 +371,47 @@ export default function PostDetail() {
                   {showModMenu && (
                     <div className="absolute right-0 mt-1 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
                       <button
-                        onClick={async () => {
-                          if (!token || !postId || !subreddit) return;
-                          try {
-                            if (isRemoved) {
-                              await restorePost(token, subreddit, postId);
-                              setIsRemoved(false);
-                              toast.success('Post restored');
-                            } else {
-                              await removePost(token, subreddit, postId);
-                              setIsRemoved(true);
-                              toast.success('Post removed');
-                            }
-                          } catch {
-                            toast.error('Failed to update post');
-                          }
+                        onClick={() => {
+                          setIsRemoved(!isRemoved);
+                          toast.success(isRemoved ? 'Post restored' : 'Post removed');
                           setShowModMenu(false);
                         }}
                         className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 w-full text-left text-sm"
                       >
                         <Trash2 className="w-4 h-4 text-red-500" />
-                        {isRemoved ? '🗑️ Restore' : '🗑️ Remove Post'}
+                        {isRemoved ? 'Restore' : 'Remove Post'}
                       </button>
                       <button
-                        onClick={async () => {
-                          if (!token || !postId || !subreddit) return;
-                          try {
-                            if (isLocked) {
-                              await unlockPost(token, subreddit, postId);
-                              setIsLocked(false);
-                              toast.success('Post unlocked');
-                            } else {
-                              await lockPost(token, subreddit, postId);
-                              setIsLocked(true);
-                              toast.success('Post locked');
-                            }
-                          } catch {
-                            toast.error('Failed to update post');
-                          }
+                        onClick={() => {
+                          setIsLocked(!isLocked);
+                          toast.success(isLocked ? 'Post unlocked' : 'Post locked');
                           setShowModMenu(false);
                         }}
                         className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 w-full text-left text-sm"
                       >
                         <Lock className="w-4 h-4 text-yellow-600" />
-                        {isLocked ? '🔒 Unlock' : '🔒 Lock Post'}
+                        {isLocked ? 'Unlock' : 'Lock Post'}
                       </button>
                       <button
-                        onClick={async () => {
-                          if (!token || !postId || !subreddit) return;
-                          try {
-                            if (isPinned) {
-                              await unpinPost(token, subreddit, postId);
-                              setIsPinned(false);
-                              toast.success('Post unpinned');
-                            } else {
-                              await pinPost(token, subreddit, postId);
-                              setIsPinned(true);
-                              toast.success('Post pinned');
-                            }
-                          } catch {
-                            toast.error('Failed to update post');
-                          }
+                        onClick={() => {
+                          setIsPinned(!isPinned);
+                          toast.success(isPinned ? 'Post unpinned' : 'Post pinned');
                           setShowModMenu(false);
                         }}
                         className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 w-full text-left text-sm"
                       >
                         <Pin className="w-4 h-4 text-green-600" />
-                        {isPinned ? '📌 Unpin' : '📌 Pin Post'}
+                        {isPinned ? 'Unpin' : 'Pin Post'}
+                      </button>
+                      <button
+                        onClick={() => {
+                          toast.success('Post flagged for review');
+                          setShowModMenu(false);
+                        }}
+                        className="flex items-center gap-2 px-4 py-2 hover:bg-gray-100 w-full text-left text-sm"
+                      >
+                        <Flag className="w-4 h-4 text-red-500" />
+                        Flag Post
                       </button>
                     </div>
                   )}

@@ -71,20 +71,55 @@ export async function sendMessage(token: string, conversationId: string, text: s
   return response.json();
 }
 
-export async function createConversation(token: string, recipientName: string, body: string): Promise<ConversationDto> {
+export async function createConversation(token: string, recipientName: string, body: string, actingAsSubreddit?: string): Promise<ConversationDto> {
+  const payload: any = { recipientName, body };
+  if (actingAsSubreddit) payload.actingAsSubreddit = actingAsSubreddit;
+
   const response = await fetch(`${MESSAGING_SERVICE_URL}/api/messages/conversations`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${token}`
     },
-    body: JSON.stringify({ recipientName, body })
+    body: JSON.stringify(payload)
   });
 
   if (!response.ok) {
     throw new Error(await parseApiError(response));
   }
   return response.json();
+}
+
+export async function createApplication(token: string, subreddit: string): Promise<ConversationDto> {
+  const response = await fetch(`${MESSAGING_SERVICE_URL}/api/messages/applications`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    body: JSON.stringify({ subreddit })
+  });
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+  return response.json();
+}
+
+export async function acceptApplication(token: string, conversationId: string): Promise<void> {
+  const response = await fetch(`${MESSAGING_SERVICE_URL}/api/messages/applications/${conversationId}/accept`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) throw new Error(await parseApiError(response));
+}
+
+export async function rejectApplication(token: string, conversationId: string): Promise<void> {
+  const response = await fetch(`${MESSAGING_SERVICE_URL}/api/messages/applications/${conversationId}/reject`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  if (!response.ok) throw new Error(await parseApiError(response));
 }
 
 export async function closeConversation(token: string, conversationId: string): Promise<void> {

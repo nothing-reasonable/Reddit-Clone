@@ -23,10 +23,24 @@ public class SubredditController {
     @PostMapping
     public ResponseEntity<SubredditDto> createSubreddit(
             @Valid @RequestBody CreateSubredditRequest request,
-            Authentication authentication
-    ) {
+            Authentication authentication) {
         SubredditDto created = subredditService.createSubreddit(request, authentication.getName());
         return new ResponseEntity<>(created, HttpStatus.CREATED);
+    }
+
+    @GetMapping("/{name}")
+    public ResponseEntity<SubredditDto> getSubredditByName(@PathVariable String name) {
+        return ResponseEntity.ok(subredditService.getSubredditByName(name));
+    }
+
+    @GetMapping("/exists/{name}")
+    public ResponseEntity<Boolean> existsByName(@PathVariable String name) {
+        return ResponseEntity.ok(subredditService.existsByName(name));
+    }
+
+    @GetMapping("/id/{id}")
+    public ResponseEntity<SubredditDto> getSubredditById(@PathVariable Long id) {
+        return ResponseEntity.ok(subredditService.getSubredditById(id));
     }
 
     @GetMapping
@@ -39,29 +53,14 @@ public class SubredditController {
         return ResponseEntity.ok(subredditService.searchSubreddits(q));
     }
 
-    @GetMapping("/user/communities")
-    public ResponseEntity<List<SubredditMemberDto>> getUserCommunities(Authentication authentication) {
-        List<SubredditMemberDto> communities = subredditService.getUserCommunities(authentication.getName());
-        return ResponseEntity.ok(communities);
-    }
-
-    @GetMapping("/id/{id}")
-    public ResponseEntity<SubredditDto> getSubredditById(@PathVariable Long id) {
-        return ResponseEntity.ok(subredditService.getSubredditById(id));
-    }
-
-    @GetMapping("/{name}")
-    public ResponseEntity<SubredditDto> getSubredditByName(@PathVariable String name) {
-        return ResponseEntity.ok(subredditService.getSubredditByName(name));
-    }
-
     @PutMapping("/{name}")
     public ResponseEntity<SubredditDto> updateSubreddit(
             @PathVariable String name,
-            @Valid @RequestBody UpdateSubredditRequest request
-    ) {
-        // Note: For a simpler implementation, we assume authentication is enough for access control here
-        // A complete implementation would verify the authenticated user is a MODERATOR of this subreddit.
+            @Valid @RequestBody UpdateSubredditRequest request) {
+        // Note: For a simpler implementation, we assume authentication is enough for
+        // access control here
+        // A complete implementation would verify the authenticated user is a MODERATOR
+        // of this subreddit.
         return ResponseEntity.ok(subredditService.updateSubreddit(name, request));
     }
 
@@ -76,8 +75,7 @@ public class SubredditController {
     @PostMapping("/{name}/join")
     public ResponseEntity<SubredditMemberDto> joinSubreddit(
             @PathVariable String name,
-            Authentication authentication
-    ) {
+            Authentication authentication) {
         SubredditMemberDto joined = subredditService.joinSubreddit(name, authentication.getName());
         return ResponseEntity.ok(joined);
     }
@@ -85,8 +83,7 @@ public class SubredditController {
     @DeleteMapping("/{name}/join")
     public ResponseEntity<Void> leaveSubreddit(
             @PathVariable String name,
-            Authentication authentication
-    ) {
+            Authentication authentication) {
         subredditService.leaveSubreddit(name, authentication.getName());
         return ResponseEntity.noContent().build();
     }
@@ -94,8 +91,7 @@ public class SubredditController {
     @PostMapping("/{name}/moderator/resign")
     public ResponseEntity<Void> resignModeratorRole(
             @PathVariable String name,
-            Authentication authentication
-    ) {
+            Authentication authentication) {
         subredditService.resignModeratorRole(name, authentication.getName());
         return ResponseEntity.noContent().build();
     }
@@ -103,8 +99,7 @@ public class SubredditController {
     @PostMapping("/{name}/takeover-requests")
     public ResponseEntity<Void> requestTakeover(
             @PathVariable String name,
-            Authentication authentication
-    ) {
+            Authentication authentication) {
         subredditService.requestTakeover(name, authentication.getName());
         return new ResponseEntity<>(HttpStatus.CREATED);
     }
@@ -114,48 +109,26 @@ public class SubredditController {
         return ResponseEntity.ok(subredditService.getMembers(name));
     }
 
+    @PostMapping("/{name}/moderators/add/{username}")
+    public ResponseEntity<Void> addModerator(@PathVariable String name, @PathVariable String username,
+            Authentication authentication) {
+        // A real implementation would check that the authenticated user is allowed to
+        // add moderators.
+        subredditService.addModerator(name, username);
+        return ResponseEntity.ok().build();
+    }
+
     @GetMapping("/{name}/is-member/{username}")
     public ResponseEntity<MemberCheckResponse> isMember(
             @PathVariable String name,
-            @PathVariable String username
-    ) {
+            @PathVariable String username) {
         boolean isMember = subredditService.isMember(name, username);
         return ResponseEntity.ok(new MemberCheckResponse(isMember));
     }
 
-    // ───── Bans ─────
-
-    @PostMapping("/{name}/bans")
-    public ResponseEntity<BannedMemberDto> banUser(
-            @PathVariable String name,
-            @RequestBody BanRequest request,
-            Authentication authentication
-    ) {
-        BannedMemberDto banned = subredditService.banUser(name, request, authentication.getName());
-        return new ResponseEntity<>(banned, HttpStatus.CREATED);
-    }
-
-    @DeleteMapping("/{name}/bans/{username}")
-    public ResponseEntity<Void> unbanUser(
-            @PathVariable String name,
-            @PathVariable String username
-    ) {
-        subredditService.unbanUser(name, username);
-        return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/{name}/bans")
-    public ResponseEntity<List<BannedMemberDto>> getBannedUsers(@PathVariable String name) {
-        return ResponseEntity.ok(subredditService.getBannedUsers(name));
-    }
-
-    @GetMapping("/{name}/is-banned/{username}")
-    public ResponseEntity<IsBannedResponse> isBanned(
-            @PathVariable String name,
-            @PathVariable String username
-    ) {
-        boolean banned = subredditService.isBanned(name, username);
-        return ResponseEntity.ok(new IsBannedResponse(banned));
+    @GetMapping("/moderates/{username}")
+    public ResponseEntity<List<String>> getModeratedSubreddits(@PathVariable String username) {
+        return ResponseEntity.ok(subredditService.getModeratedSubreddits(username));
     }
 
     // ───── Rules ─────
@@ -163,8 +136,7 @@ public class SubredditController {
     @PostMapping("/{name}/rules")
     public ResponseEntity<SubredditRuleDto> addRule(
             @PathVariable String name,
-            @Valid @RequestBody SubredditRuleDto ruleDto
-    ) {
+            @Valid @RequestBody SubredditRuleDto ruleDto) {
         return new ResponseEntity<>(subredditService.addRule(name, ruleDto), HttpStatus.CREATED);
     }
 
@@ -172,16 +144,14 @@ public class SubredditController {
     public ResponseEntity<SubredditRuleDto> updateRule(
             @PathVariable String name,
             @PathVariable Long ruleId,
-            @Valid @RequestBody SubredditRuleDto ruleDto
-    ) {
+            @Valid @RequestBody SubredditRuleDto ruleDto) {
         return ResponseEntity.ok(subredditService.updateRule(name, ruleId, ruleDto));
     }
 
     @DeleteMapping("/{name}/rules/{ruleId}")
     public ResponseEntity<Void> deleteRule(
             @PathVariable String name,
-            @PathVariable Long ruleId
-    ) {
+            @PathVariable Long ruleId) {
         subredditService.deleteRule(name, ruleId);
         return ResponseEntity.noContent().build();
     }
@@ -191,16 +161,14 @@ public class SubredditController {
     @PostMapping("/{name}/flairs")
     public ResponseEntity<SubredditDto> addFlair(
             @PathVariable String name,
-            @RequestParam String flair
-    ) {
+            @RequestParam String flair) {
         return new ResponseEntity<>(subredditService.addFlair(name, flair), HttpStatus.CREATED);
     }
 
     @DeleteMapping("/{name}/flairs/{flair}")
     public ResponseEntity<SubredditDto> removeFlair(
             @PathVariable String name,
-            @PathVariable String flair
-    ) {
+            @PathVariable String flair) {
         return ResponseEntity.ok(subredditService.removeFlair(name, flair));
     }
 }

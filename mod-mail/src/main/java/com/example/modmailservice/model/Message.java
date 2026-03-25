@@ -24,6 +24,9 @@ public class Message {
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 
+    @Column(name = "acting_as_subreddit")
+    private String actingAsSubreddit;
+
     @PrePersist
     protected void onCreate() {
         createdAt = LocalDateTime.now();
@@ -45,4 +48,7 @@ public class Message {
 
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    public String getActingAsSubreddit() { return actingAsSubreddit; }
+    public void setActingAsSubreddit(String actingAsSubreddit) { this.actingAsSubreddit = actingAsSubreddit; }
 }

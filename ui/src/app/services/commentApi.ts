@@ -15,8 +15,6 @@ interface CommentDto {
   editedAt: string | null;
   removed: boolean;
   flagged: boolean;
-  reports: number;
-  reportReasons: string;
 }
 
 interface PaginatedResponse<T> {
@@ -40,8 +38,6 @@ function mapComment(dto: CommentDto): Comment {
     createdAt: new Date(dto.createdAt),
     removed: dto.removed,
     flagged: dto.flagged,
-    reports: dto.reports,
-    reportReasons: dto.reportReasons,
   };
 }
 
@@ -104,21 +100,5 @@ export async function deleteComment(token: string, postId: string, commentId: st
 
   if (!response.ok) {
     throw new Error(`Failed to delete comment (${response.status})`);
-  }
-}
-
-export async function reportComment(postId: string, commentId: string, reason: string): Promise<void> {
-  const url = `${CONTENT_SERVICE_URL}/api/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}/reports`;
-  
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ reason }),
-  });
-
-  if (!response.ok) {
-    throw new Error(`Failed to report comment (${response.status})`);
   }
 }

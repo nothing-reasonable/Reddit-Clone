@@ -37,8 +37,6 @@ export interface Comment {
   flagged?: boolean;
   flagReason?: string;
   removed?: boolean;
-  reports?: number;
-  reportReasons?: string;
 }
 
 export interface SubredditRule {
