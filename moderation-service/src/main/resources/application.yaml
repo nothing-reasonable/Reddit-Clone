@@ -7,9 +7,9 @@ spring:
   main:
     allow-bean-definition-overriding: true
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://postgres-moderation:5432/moddb}
-    username: ${SPRING_DATASOURCE_USERNAME:postgres}
-    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    url: jdbc:postgresql://localhost:5436/moddb
+    username: postgres
+    password: postgres
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
@@ -27,6 +27,6 @@ logging:
 
 services:
   subreddit:
-    base-url: ${SERVICES_SUBREDDIT_BASE_URL:http://subreddit-service:8082}
+    base-url: ${SERVICES_SUBREDDIT_BASE_URL:http://localhost:8082}
   content:
-    base-url: ${SERVICES_CONTENT_BASE_URL:http://content-service:8083}
+    base-url: ${SERVICES_CONTENT_BASE_URL:http://localhost:8083}
