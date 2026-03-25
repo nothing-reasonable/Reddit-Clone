@@ -13,6 +13,7 @@ interface SubredditContextType {
   isJoined: (subreddit: string) => boolean;
   isModerator: (subreddit: string) => boolean;
   applyAsModerator: (subreddit: string) => void;
+  removePendingApplication: (subreddit: string) => void;
   pendingModApplications: string[];
 }
 
@@ -35,6 +36,28 @@ export function SubredditProvider({ children }: { children: ReactNode }) {
     if (storedApps) {
       setPendingModApplications(JSON.parse(storedApps));
     }
+  }, []);
+
+  // Try to fetch pending applications from server if we have a token
+  useEffect(() => {
+    const fetchPending = async () => {
+      try {
+        const token = localStorage.getItem('jwtToken');
+        if (!token) return;
+        const res = await fetch('http://localhost:8085/api/messages/applications/me', {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setPendingModApplications(data);
+          localStorage.setItem('pendingModApplications', JSON.stringify(data));
+        }
+      } catch (e) {
+        // ignore
+      }
+    };
+    void fetchPending();
   }, []);
 
   const joinSubreddit = (subreddit: string, role: 'member' | 'moderator' = 'member') => {
@@ -68,6 +91,12 @@ export function SubredditProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const removePendingApplication = (subreddit: string) => {
+    const newApps = pendingModApplications.filter((s) => s !== subreddit);
+    setPendingModApplications(newApps);
+    localStorage.setItem('pendingModApplications', JSON.stringify(newApps));
+  };
+
   return (
     <SubredditContext.Provider
       value={{
@@ -77,6 +106,7 @@ export function SubredditProvider({ children }: { children: ReactNode }) {
         isJoined,
         isModerator,
         applyAsModerator,
+        removePendingApplication,
         pendingModApplications,
       }}
     >

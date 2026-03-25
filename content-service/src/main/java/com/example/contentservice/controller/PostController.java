@@ -2,7 +2,6 @@ package com.example.contentservice.controller;
 
 import com.example.contentservice.dto.CommentCreateRequest;
 import com.example.contentservice.dto.CommentDto;
-import com.example.contentservice.dto.CommentReportRequest;
 import com.example.contentservice.dto.PaginatedResponse;
 import com.example.contentservice.dto.Pagination;
 import com.example.contentservice.dto.PostCreateRequest;
@@ -126,8 +125,8 @@ public class PostController {
 
     @PostMapping("/posts/{postId}/reports")
     @ResponseStatus(HttpStatus.CREATED)
-    public void reportPost(@PathVariable String postId, @RequestBody CommentReportRequest reportRequest) {
-        postService.reportPost(postId, reportRequest.getReason());
+    public void reportPost(@PathVariable String postId) {
+        postService.reportPost(postId);
     }
 
     // ─── Comment Endpoints ───────────────────────────────────────────────────
@@ -168,12 +167,6 @@ public class PostController {
     @GetMapping("/posts/{postId}/comments/{commentId}/replies")
     public List<CommentDto> getCommentReplies(@PathVariable String commentId) {
         return commentService.getReplies(commentId);
-    }
-
-    @PostMapping("/posts/{postId}/comments/{commentId}/reports")
-    @ResponseStatus(HttpStatus.CREATED)
-    public void reportComment(@PathVariable String postId, @PathVariable String commentId, @RequestBody CommentReportRequest reportRequest) {
-        commentService.reportComment(postId, commentId, reportRequest.getReason());
     }
 
     private PaginatedResponse<Post> buildPaginatedResponse(Page<Post> page, int pageNum) {

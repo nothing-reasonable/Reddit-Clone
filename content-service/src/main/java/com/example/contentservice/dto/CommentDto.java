@@ -24,5 +24,4 @@ public class CommentDto {
     private LocalDateTime editedAt;
     private boolean removed;
     private boolean flagged;
-    private int reports;
 }

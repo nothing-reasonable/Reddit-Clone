@@ -10,6 +10,5 @@ public interface SubredditTakeoverRequestRepository extends JpaRepository<Subred
     boolean existsBySubredditIdAndRequesterUsernameAndStatus(
             Long subredditId,
             String requesterUsername,
-            TakeoverRequestStatus status
-    );
+            TakeoverRequestStatus status);
 }

@@ -68,6 +68,7 @@ export default function ModMailPage() {
 
   // Filter mails based on user role
   const userMailsOnly = isModerator ? mails : mails.filter((m) => m.from === user?.username);
+  const unreadCount = userMailsOnly.filter((m) => !m.read).length;
 
   // Further filter mails by active filter
   const filteredMails = userMailsOnly.filter((m) => {
@@ -140,11 +141,18 @@ export default function ModMailPage() {
           </Link>
           <div className="flex-1">
             <h1 className="text-2xl font-bold flex items-center gap-2">
-              <Mail className="w-6 h-6 text-blue-500" />
+              <span className="relative inline-flex items-center">
+                <Mail className="w-6 h-6 text-blue-500" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-2 -right-2 min-w-[1.25rem] h-5 px-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                    {unreadCount}
+                  </span>
+                )}
+              </span>
               {isModerator ? 'Mod Mail' : 'Messages'}
             </h1>
             <p className="text-gray-600">
-              r/{subreddit} - {userMailsOnly.filter((m) => !m.read).length} unread
+              r/{subreddit} - {unreadCount} unread
               {!isModerator && ' (Your messages)'}
             </p>
           </div>

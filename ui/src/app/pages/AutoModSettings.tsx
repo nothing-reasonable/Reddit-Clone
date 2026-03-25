@@ -10,8 +10,8 @@ import {
 import { toast } from 'sonner';
 import { formatDistanceToNow, format } from 'date-fns';
 import yaml from 'js-yaml';
-import { testCustomRule, getAutoModRules, createAutoModRule, updateAutoModRule, toggleAutoModRule, deleteAutoModRule, getAutoModHistory } from '../services/moderationApi';
-import type { AutoModRuleDto, AutoModHistoryEntry } from '../services/moderationApi';
+import { testCustomRule, getAutoModRules, createAutoModRule, updateAutoModRule, toggleAutoModRule, deleteAutoModRule } from '../services/moderationApi';
+import type { AutoModRuleDto } from '../services/moderationApi';
 import { getSubredditByName } from '../services/subredditApi';
 import type { Subreddit } from '../types/domain';
 
@@ -283,21 +283,6 @@ export default function AutoModSettings() {
       .finally(() => { if (!cancelled) setRulesLoading(false); });
     return () => { cancelled = true; };
   }, [subreddit, token]);
-
-  // Fetch AutoMod rule history
-  const [history, setHistory] = useState<AutoModHistoryEntry[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(true);
-  useEffect(() => {
-    if (!subreddit || !token) return;
-    let cancelled = false;
-    setHistoryLoading(true);
-    getAutoModHistory(token, subreddit)
-      .then(data => { if (!cancelled) setHistory(data); })
-      .catch(() => { /* silently ignore */ })
-      .finally(() => { if (!cancelled) setHistoryLoading(false); });
-    return () => { cancelled = true; };
-  }, [subreddit, token]);
-
   const [activeTab, setActiveTab] = useState<'rules' | 'history' | 'test' | 'logs'>('rules');
 
   // Rule editor
@@ -849,63 +834,44 @@ export default function AutoModSettings() {
             <p className="text-sm text-gray-500">Recent changes to AutoMod rules</p>
           </div>
           <div className="divide-y divide-gray-100">
-            {historyLoading ? (
-              <div className="px-6 py-8 text-center">
-                <Loader2 className="w-6 h-6 inline animate-spin text-gray-400" />
-                <p className="text-sm text-gray-500 mt-2">Loading history...</p>
-              </div>
-            ) : history.length === 0 ? (
-              <div className="px-6 py-8 text-center">
-                <History className="w-8 h-8 inline text-gray-300 mb-2" />
-                <p className="text-sm text-gray-500">No rule changes yet</p>
-              </div>
-            ) : (
-              history.map((entry) => (
-                <div key={entry.id} className="px-6 py-4 flex items-start gap-4 hover:bg-gray-50">
-                  <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center shrink-0 mt-0.5">
-                    <History className="w-4 h-4 text-blue-600" />
+            {MOCK_EDIT_HISTORY.map((entry) => (
+              <div key={entry.id} className="px-6 py-4 flex items-start gap-4 hover:bg-gray-50">
+                <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
+                  <History className="w-4 h-4 text-gray-500" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap mb-1">
+                    <span className="font-semibold text-sm">{entry.ruleName}</span>
+                    <span className="px-2 py-0.5 text-[11px] bg-gray-100 rounded text-gray-600">
+                      {entry.field === 'new rule' ? 'Created' : `Changed ${entry.field}`}
+                    </span>
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap mb-1">
-                      <span className="font-semibold text-sm">{entry.ruleName}</span>
-                      <span className="px-2 py-0.5 text-[11px] bg-blue-100 rounded text-blue-700 font-medium">
-                        {(entry.action === 'created' && 'Created') ||
-                         (entry.action === 'modified' && 'Modified') ||
-                         (entry.action === 'deleted' && 'Deleted') ||
-                         entry.action.charAt(0).toUpperCase() + entry.action.slice(1)}
-                      </span>
-                    </div>
-                    {entry.changes && Object.keys(entry.changes).length > 0 && (
-                      <div className="text-xs mb-1 space-y-0.5">
-                        {Object.entries(entry.changes).map(([key, change]: [string, unknown]) => {
-                          const changeObj = change as Record<string, unknown>;
-                          return (
-                            <div key={key}>
-                              <div className="text-gray-600 font-medium capitalize">{key}:</div>
-                              {(changeObj.before || changeObj.old_value) && (
-                                <div className="flex items-start gap-1.5">
-                                  <span className="text-red-400 shrink-0">&minus;</span>
-                                  <span className="text-gray-500 line-through break-all">{String(changeObj.before || changeObj.old_value)}</span>
-                                </div>
-                              )}
-                              {(changeObj.after || changeObj.new_value) && (
-                                <div className="flex items-start gap-1.5">
-                                  <span className="text-green-500 shrink-0">+</span>
-                                  <span className="text-gray-700 break-all">{String(changeObj.after || changeObj.new_value)}</span>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
+                  {entry.field !== 'new rule' && entry.field !== 'enabled' && (
+                    <div className="text-xs mb-1 space-y-0.5">
+                      <div className="flex items-start gap-1.5">
+                        <span className="text-red-400 shrink-0">&minus;</span>
+                        <span className="text-gray-500 line-through break-all">{entry.oldValue}</span>
                       </div>
-                    )}
-                    <div className="text-[11px] text-gray-400 mt-1">
-                      by u/{entry.moderator} &middot; {format(new Date(entry.timestamp), 'MMM d, yyyy h:mm a')} ({formatDistanceToNow(new Date(entry.timestamp), { addSuffix: true })})
+                      <div className="flex items-start gap-1.5">
+                        <span className="text-green-500 shrink-0">+</span>
+                        <span className="text-gray-700 break-all">{entry.newValue}</span>
+                      </div>
                     </div>
+                  )}
+                  {entry.field === 'enabled' && (
+                    <p className="text-xs text-gray-500">
+                      Changed from <span className="font-medium">{entry.oldValue}</span> to <span className="font-medium">{entry.newValue}</span>
+                    </p>
+                  )}
+                  {entry.field === 'new rule' && (
+                    <p className="text-xs text-gray-500">{entry.newValue}</p>
+                  )}
+                  <div className="text-[11px] text-gray-400 mt-1">
+                    by u/{entry.editor} &middot; {format(entry.timestamp, 'MMM d, yyyy h:mm a')} ({formatDistanceToNow(entry.timestamp, { addSuffix: true })})
                   </div>
                 </div>
-              ))
-            )}
+              </div>
+            ))}
           </div>
         </div>
       )}

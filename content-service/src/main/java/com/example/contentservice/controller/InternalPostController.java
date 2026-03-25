@@ -1,10 +1,7 @@
 package com.example.contentservice.controller;
 
 import com.example.contentservice.model.Post;
-import com.example.contentservice.model.Comment;
 import com.example.contentservice.service.ContentService;
-import com.example.contentservice.service.CommentService;
-import com.example.contentservice.dto.CommentDto;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -22,7 +19,6 @@ import java.util.Map;
 public class InternalPostController {
 
     private final ContentService postService;
-    private final CommentService commentService;
 
     @GetMapping("/flagged")
     public Page<Post> getFlaggedPosts(
@@ -35,16 +31,6 @@ public class InternalPostController {
         return postService.getFlaggedPosts(subreddit, PageRequest.of(page, limit, sortOrder));
     }
 
-    @GetMapping("/flagged-comments")
-    public Page<CommentDto> getFlaggedComments(
-            @RequestParam String subreddit,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "25") int limit) {
-
-        Sort sortOrder = Sort.by(Sort.Direction.DESC, "createdAt");
-        return commentService.getFlaggedComments(subreddit, PageRequest.of(page, limit, sortOrder));
-    }
-
     @PatchMapping("/modqueue-action")
     public ResponseEntity<Map<String, Integer>> bulkModQueueAction(
             @RequestBody ModQueueActionRequest request) {
@@ -54,29 +40,13 @@ public class InternalPostController {
         
         for (String id : request.getIds()) {
             try {
-                if ("post".equalsIgnoreCase(request.getType())) {
-                    // Handle post approval/removal
-                    Post post = postService.getPost(id);
-                    if ("approved".equalsIgnoreCase(request.getStatus())) {
-                        post.setReports(0); // clear report count
-                        post.setFlagged(false); // clear flagged status
-                        post.setReportReasons("[]"); // clear report reasons
-                    } else if ("removed".equalsIgnoreCase(request.getStatus())) {
-                        post.setRemoved(true);
-                    }
-                    postService.savePostInternal(post);
-                } else if ("comment".equalsIgnoreCase(request.getType())) {
-                    // Handle comment approval/removal
-                    Comment comment = commentService.getCommentById(id);
-                    if ("approved".equalsIgnoreCase(request.getStatus())) {
-                        comment.setReports(0); // clear report count
-                        comment.setFlagged(false); // clear flagged status
-                        comment.setReportReasons("[]"); // clear report reasons
-                    } else if ("removed".equalsIgnoreCase(request.getStatus())) {
-                        comment.setRemoved(true);
-                    }
-                    commentService.saveCommentInternal(comment);
+                Post post = postService.getPost(id);
+                if ("approved".equalsIgnoreCase(request.getStatus())) {
+                    post.setReports(0); // clear flags
+                } else if ("removed".equalsIgnoreCase(request.getStatus())) {
+                    post.setRemoved(true);
                 }
+                postService.savePostInternal(post);
                 processed++;
             } catch (Exception e) {
                 failed++;
@@ -118,42 +88,9 @@ public class InternalPostController {
         return postService.unpinPost(postId);
     }
 
-    // ── Comment Mod Action Endpoints ────────────────────────────────
-
-    @PatchMapping("/{postId}/comments/{commentId}/approve")
-    public CommentDto approveComment(@PathVariable String postId, @PathVariable String commentId) {
-        Comment comment = commentService.approveComment(commentId);
-        return mapCommentToDto(comment);
-    }
-
-    @PatchMapping("/{postId}/comments/{commentId}/remove")
-    public CommentDto removeComment(@PathVariable String postId, @PathVariable String commentId) {
-        Comment comment = commentService.removeComment(commentId);
-        return mapCommentToDto(comment);
-    }
-
-    private CommentDto mapCommentToDto(Comment comment) {
-        return CommentDto.builder()
-                .id(comment.getId())
-                .postId(comment.getPostId())
-                .parentId(comment.getParentId())
-                .author(comment.getAuthor())
-                .content(comment.getContent())
-                .upvotes(comment.getUpvotes())
-                .downvotes(comment.getDownvotes())
-                .score(comment.getScore())
-                .createdAt(comment.getCreatedAt())
-                .editedAt(comment.getEditedAt())
-                .removed(comment.isRemoved())
-                .flagged(comment.isFlagged())
-                .reports(comment.getReports())
-                .build();
-    }
-
     @Data
     public static class ModQueueActionRequest {
         private List<String> ids;
         private String status;
-        private String type; // "post" or "comment"
     }
 }
