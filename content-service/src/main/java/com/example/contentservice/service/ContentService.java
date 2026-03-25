@@ -117,7 +117,8 @@ public class ContentService {
             if (rule == null || rule.getYamlContent() == null) continue;
 
             ModerationService.AutoModEvaluationResponse result =
-                    moderationService.evaluateRule(rule.getYamlContent(), context.toMap());
+                    moderationService.evaluateRule(rule.getYamlContent(), context.toMap(), 
+                                                   rule.getId(), rule.getName(), subreddit);
 
             if (result.isTriggered()) {
                 String action = result.getAction();
@@ -142,6 +143,7 @@ public class ContentService {
         context.setTitle(post.getTitle());
         context.setBody(post.getContent());
         context.setAuthor(post.getAuthor());
+        // context.setId(post.getId());
         context.setSubmissionType(post.getType().name().toLowerCase());
         context.setFlairText(post.getFlair());
 

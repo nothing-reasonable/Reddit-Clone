@@ -110,6 +110,13 @@ export default function ModTools() {
       description: 'View moderator actions',
     },
     {
+      label: 'AutoMod Logs',
+      icon: FileText,
+      path: `/r/${subreddit}/automod/logs`,
+      badgeColor: 'bg-green-500',
+      description: 'View automated rule actions',
+    },
+    {
       label: 'Banned Users',
       icon: UserX,
       path: `/r/${subreddit}/mod/banned`,

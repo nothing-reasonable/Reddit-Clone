@@ -54,13 +54,24 @@ public class ModerationService {
      * Evaluate a single AutoMod rule against content context.
      */
     public AutoModEvaluationResponse evaluateRule(String ruleYaml, Map<String, Object> context) {
-        log.debug("Evaluating AutoMod rule");
+        return evaluateRule(ruleYaml, context, null, null, null);
+    }
+
+    /**
+     * Evaluate a single AutoMod rule against content context with rule metadata for logging.
+     */
+    public AutoModEvaluationResponse evaluateRule(String ruleYaml, Map<String, Object> context,
+                                                  String ruleId, String ruleName, String subreddit) {
+        log.debug("Evaluating AutoMod rule: {} from r/{}", ruleName, subreddit);
         try {
             String url = moderationServiceUrl + EVALUATE_ENDPOINT;
 
             Map<String, Object> request = new HashMap<>();
             request.put("ruleYaml", ruleYaml);
             request.put("context", context);
+            if (ruleId != null) request.put("ruleId", ruleId);
+            if (ruleName != null) request.put("ruleName", ruleName);
+            if (subreddit != null) request.put("subredditName", subreddit);
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);

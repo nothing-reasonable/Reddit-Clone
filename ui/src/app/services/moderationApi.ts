@@ -147,6 +147,40 @@ export async function getModLog(token: string, subreddit: string): Promise<impor
   }));
 }
 
+export interface AutoModLogEntryDto {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  targetAuthor: string;
+  reason?: string;
+  timestamp: string;
+}
+
+export async function getAutoModLogs(token: string, subreddit: string, action?: string): Promise<import('../types/domain').AutoModLogEntry[]> {
+  let url = `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/automod/logs`;
+  if (action) {
+    url += `?action=${encodeURIComponent(action)}`;
+  }
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error(`Failed to fetch AutoMod logs (${response.status})`);
+  const responseData = await response.json() as { data: AutoModLogEntryDto[] };
+  const data = responseData.data || [];
+  return data.map((entry) => ({
+    id: entry.id,
+    ruleId: entry.ruleId,
+    ruleName: entry.ruleName,
+    action: entry.action,
+    targetType: entry.targetType,
+    targetId: entry.targetId,
+    targetAuthor: entry.targetAuthor,
+    reason: entry.reason,
+    timestamp: new Date(entry.timestamp),
+  }));
+}
+
 export async function testCustomRule(
   token: string,
   request: TestPlaygroundRequest

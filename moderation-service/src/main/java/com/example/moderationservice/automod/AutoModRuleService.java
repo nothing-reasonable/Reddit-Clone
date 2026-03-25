@@ -170,19 +170,60 @@ public class AutoModRuleService {
     }
 
     private AutoModHistoryEntryResponse toHistoryEntryResponse(AutoModRuleHistory history) {
-        // Try to fetch the rule name from the repository
-        String ruleName = repository.findById(history.getRuleId())
-                .map(AutoModRule::getName)
-                .orElse("[Deleted Rule]");
+        Map<String, Object> changes = readJsonMap(history.getChangesJson());
+        String ruleName = resolveRuleName(history, changes);
         
         return new AutoModHistoryEntryResponse(
+                history.getId(),
                 history.getRuleId(),
                 ruleName,
                 history.getAction(),
                 history.getModerator(),
                 history.getTimestamp(),
-                readJsonMap(history.getChangesJson())
+                changes
         );
+    }
+
+    private String resolveRuleName(AutoModRuleHistory history, Map<String, Object> changes) {
+        // Prefer current repository value for active rules.
+        String currentName = repository.findById(history.getRuleId())
+                .map(AutoModRule::getName)
+                .orElse(null);
+        if (currentName != null && !currentName.isBlank()) {
+            return currentName;
+        }
+
+        // For deleted rules, fall back to snapshot data captured in history.
+        Object deletedRuleObj = changes.get("deletedRule");
+        if (deletedRuleObj instanceof Map<?, ?> deletedRule) {
+            Object nameObj = deletedRule.get("name");
+            if (nameObj instanceof String deletedName && !deletedName.isBlank()) {
+                return deletedName;
+            }
+        }
+
+        Object afterObj = changes.get("after");
+        if (afterObj instanceof Map<?, ?> afterMap) {
+            Object nameObj = afterMap.get("name");
+            if (nameObj instanceof String afterName && !afterName.isBlank()) {
+                return afterName;
+            }
+        }
+
+        Object beforeObj = changes.get("before");
+        if (beforeObj instanceof Map<?, ?> beforeMap) {
+            Object nameObj = beforeMap.get("name");
+            if (nameObj instanceof String beforeName && !beforeName.isBlank()) {
+                return beforeName;
+            }
+        }
+
+        Object topLevelName = changes.get("name");
+        if (topLevelName instanceof String directName && !directName.isBlank()) {
+            return directName;
+        }
+
+        return "[Deleted Rule]";
     }
 
     private String writeJson(Map<String, Object> data) {
