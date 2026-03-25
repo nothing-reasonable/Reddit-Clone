@@ -1,5 +1,7 @@
 package com.example.moderationservice.testplayground;
 
+import com.example.moderationservice.automod.AutoModRule;
+import com.example.moderationservice.automod.AutoModRuleRepository;
 import com.example.moderationservice.engine.AutoModEngine;
 import com.example.moderationservice.engine.AutoModContext;
 import com.example.moderationservice.engine.AutoModResult;
@@ -10,6 +12,8 @@ import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import org.springframework.stereotype.Service;
 
 import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -17,9 +21,11 @@ public class TestPlaygroundService {
 
     private final ObjectMapper mapper = new ObjectMapper(new YAMLFactory());
     private final AutoModEngine autoModEngine;
+    private final AutoModRuleRepository autoModRuleRepository;
 
-    public TestPlaygroundService(AutoModEngine autoModEngine) {
+    public TestPlaygroundService(AutoModEngine autoModEngine, AutoModRuleRepository autoModRuleRepository) {
         this.autoModEngine = autoModEngine;
+        this.autoModRuleRepository = autoModRuleRepository;
     }
 
     public TestPlaygroundResponse testCustomRule(TestPlaygroundRequest request) {
@@ -50,6 +56,42 @@ public class TestPlaygroundService {
             response.setError("Error evaluating rule: " + e.getMessage());
         }
 
+        return response;
+    }
+
+    public SavedRulesTestResponse testSavedRules(SavedRulesTestRequest request) {
+        List<SavedRuleTestResult> results = new ArrayList<>();
+        AutoModContext context = convertToEngineContext(request.getScenario(), request.getSubredditName());
+
+        List<AutoModRule> savedRules = autoModRuleRepository
+                .findBySubredditNameOrderByPriorityAsc(request.getSubredditName())
+                .stream()
+                .filter(AutoModRule::isEnabled)
+                .toList();
+
+        for (AutoModRule savedRule : savedRules) {
+            SavedRuleTestResult result = new SavedRuleTestResult();
+            result.setRuleId(savedRule.getId());
+            result.setRuleName(savedRule.getName());
+
+            try {
+                Map<String, Object> parsedRule = mapper.readValue(
+                        savedRule.getYamlContent(),
+                        new TypeReference<Map<String, Object>>() {}
+                );
+                AutoModResult engineResult = autoModEngine.evaluateRule(parsedRule, context);
+                result.setTriggered(engineResult.isTriggered());
+                result.setAction(engineResult.getAction());
+                result.setMessage(engineResult.getMessage());
+            } catch (Exception ex) {
+                result.setError("Failed to evaluate saved rule: " + ex.getMessage());
+            }
+
+            results.add(result);
+        }
+
+        SavedRulesTestResponse response = new SavedRulesTestResponse();
+        response.setResults(results);
         return response;
     }
 
