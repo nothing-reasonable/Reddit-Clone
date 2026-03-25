@@ -6,7 +6,9 @@ import com.example.contentservice.dto.CommentDto;
 import com.example.contentservice.exception.ResourceNotFoundException;
 import com.example.contentservice.exception.UnauthorizedActionException;
 import com.example.contentservice.model.Comment;
+import com.example.contentservice.model.CommentVote;
 import com.example.contentservice.model.Post;
+import com.example.contentservice.repository.CommentVoteRepository;
 import com.example.contentservice.repository.CommentRepository;
 import com.example.contentservice.repository.PostRepository;
 import lombok.RequiredArgsConstructor;
@@ -28,6 +30,7 @@ import java.util.UUID;
 public class CommentService {
 
     private final CommentRepository commentRepository;
+    private final CommentVoteRepository commentVoteRepository;
     private final PostRepository postRepository;
     private final SubredditClient subredditClient;
 
@@ -89,6 +92,14 @@ public class CommentService {
                 .build();
 
         Comment savedComment = commentRepository.save(comment);
+
+        // Reddit-style behavior: author has an initial upvote persisted.
+        CommentVote initialAuthorVote = CommentVote.builder()
+            .commentId(savedComment.getId())
+            .username(author)
+            .direction(1)
+            .build();
+        commentVoteRepository.save(initialAuthorVote);
         
         // Update post comment count
         post.setCommentCount(post.getCommentCount() + 1);
@@ -96,6 +107,52 @@ public class CommentService {
 
         log.info("Comment created successfully: {} by {} on post {}", savedComment.getId(), author, postId);
         return mapToDto(savedComment);
+    }
+
+    @Transactional
+    public int voteComment(String postId, String commentId, String requesterUsername, int direction) {
+        if (direction < -1 || direction > 1) {
+            throw new IllegalArgumentException("Vote direction must be -1, 0, or 1");
+        }
+
+        Comment comment = commentRepository.findById(commentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Comment not found: " + commentId));
+
+        if (!comment.getPostId().equals(postId)) {
+            throw new IllegalArgumentException("Comment does not belong to this post");
+        }
+
+        CommentVote vote = commentVoteRepository.findByCommentIdAndUsername(commentId, requesterUsername).orElse(null);
+        int previousDirection = vote != null ? vote.getDirection() : 0;
+
+        int previousUpvoteDelta = previousDirection == 1 ? 1 : 0;
+        int previousDownvoteDelta = previousDirection == -1 ? 1 : 0;
+        int nextUpvoteDelta = direction == 1 ? 1 : 0;
+        int nextDownvoteDelta = direction == -1 ? 1 : 0;
+
+        if (vote != null) {
+            vote.setDirection(direction);
+            if (direction == 0) {
+                commentVoteRepository.delete(vote);
+            } else {
+                commentVoteRepository.save(vote);
+            }
+        } else if (direction != 0) {
+            CommentVote newVote = CommentVote.builder()
+                    .commentId(commentId)
+                    .username(requesterUsername)
+                    .direction(direction)
+                    .build();
+            commentVoteRepository.save(newVote);
+        }
+
+        int nextUpvotes = comment.getUpvotes() - previousUpvoteDelta + nextUpvoteDelta;
+        int nextDownvotes = comment.getDownvotes() - previousDownvoteDelta + nextDownvoteDelta;
+        comment.setUpvotes(Math.max(0, nextUpvotes));
+        comment.setDownvotes(Math.max(0, nextDownvotes));
+        comment.setScore(comment.getUpvotes() - comment.getDownvotes());
+        commentRepository.save(comment);
+        return comment.getScore();
     }
 
     @Transactional

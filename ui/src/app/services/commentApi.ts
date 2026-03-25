@@ -122,3 +122,21 @@ export async function reportComment(postId: string, commentId: string, reason: s
     throw new Error(`Failed to report comment (${response.status})`);
   }
 }
+
+export async function voteComment(token: string, postId: string, commentId: string, direction: -1 | 0 | 1): Promise<number> {
+  const response = await fetch(`${CONTENT_SERVICE_URL}/api/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}/votes`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ direction }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to vote on comment (${response.status})`);
+  }
+
+  const payload = (await response.json()) as { score: number };
+  return payload.score;
+}

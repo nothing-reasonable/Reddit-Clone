@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
-import { reportComment } from '../services/commentApi';
+import { reportComment, voteComment } from '../services/commentApi';
 import { useAuth } from '../contexts/AuthContext';
 
 export type CommentNode = {
@@ -31,8 +31,10 @@ interface CommentComponentProps {
 }
 
 export default function CommentComponent({ node, onReply, onDelete, isModerator: _isModerator }: CommentComponentProps) {
-  const { user } = useAuth();
-  const [vote, setVote] = useState<'up' | 'down' | null>(null);
+  const { user, token } = useAuth();
+  const [userVote, setUserVote] = useState<-1 | 0 | 1>(user?.username === node.author ? 1 : 0);
+  const [score, setScore] = useState(node.upvotes - node.downvotes);
+  const [isVoting, setIsVoting] = useState(false);
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [collapsed, setCollapsed] = useState(false);
@@ -43,11 +45,27 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
   const [reportReason, setReportReason] = useState('');
   const [showCommentMenu, setShowCommentMenu] = useState(false);
 
-  const score = node.upvotes - node.downvotes + (vote === 'up' ? 1 : vote === 'down' ? -1 : 0);
   const canDeleteComment = !!user && user.username === node.author;
 
-  const handleVote = (type: 'up' | 'down') => {
-    setVote(vote === type ? null : type);
+  const handleVote = async (type: 'up' | 'down') => {
+    if (!token) {
+      toast.error('Please log in to vote');
+      return;
+    }
+
+    const intendedDirection: -1 | 1 = type === 'up' ? 1 : -1;
+    const nextDirection: -1 | 0 | 1 = userVote === intendedDirection ? 0 : intendedDirection;
+
+    setIsVoting(true);
+    try {
+      const newScore = await voteComment(token, node.postId, node.id, nextDirection);
+      setScore(newScore);
+      setUserVote(nextDirection);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to vote on comment');
+    } finally {
+      setIsVoting(false);
+    }
   };
 
   const submitReply = async () => {
@@ -152,13 +170,15 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
             <>
               <button
                 onClick={() => handleVote('up')}
-                className={`p-0.5 rounded hover:bg-orange-100 ${vote === 'up' ? 'text-orange-500' : 'text-gray-300 hover:text-orange-400'}`}
+                disabled={isVoting}
+                className={`p-0.5 rounded hover:bg-orange-100 ${userVote === 1 ? 'text-orange-500' : 'text-gray-300 hover:text-orange-400'}`}
               >
                 <ArrowUp className="w-4 h-4" />
               </button>
               <button
                 onClick={() => handleVote('down')}
-                className={`p-0.5 rounded hover:bg-blue-100 ${vote === 'down' ? 'text-blue-500' : 'text-gray-300 hover:text-blue-400'}`}
+                disabled={isVoting}
+                className={`p-0.5 rounded hover:bg-blue-100 ${userVote === -1 ? 'text-blue-500' : 'text-gray-300 hover:text-blue-400'}`}
               >
                 <ArrowDown className="w-4 h-4" />
               </button>
@@ -240,6 +260,16 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
                     {(node.flagged || (node.reports ?? 0) > 0) ? 'Reported' : 'Report'}
                   </button>
                   
+                  {(_isModerator || node.author === "moderator") && onDelete && (
+                    <button 
+                      onClick={handleDelete}
+                      disabled={isDeleting}
+                      className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 font-medium ml-1"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Delete
+                    </button>
+                  )}
                 </div>
               </div>
 
