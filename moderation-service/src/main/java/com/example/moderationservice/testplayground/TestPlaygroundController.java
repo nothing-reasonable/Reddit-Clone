@@ -31,4 +31,12 @@ public class TestPlaygroundController {
         }
         return ResponseEntity.ok(response);
     }
+
+    @PostMapping("/saved")
+    public ResponseEntity<SavedRulesTestResponse> testSavedRules(
+            @Valid @RequestBody SavedRulesTestRequest request,
+            Authentication authentication) {
+        moderatorAuthService.requireModerator(request.getSubredditName(), authentication.getName());
+        return ResponseEntity.ok(service.testSavedRules(request));
+    }
 }
