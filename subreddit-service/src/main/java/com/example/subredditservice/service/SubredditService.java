@@ -30,6 +30,7 @@ public interface SubredditService {
     List<SubredditMemberDto> getUserCommunities(String username);
     boolean isMember(String subredditName, String username);
     long heartbeatPresence(String subredditName, String username, String clientSessionId);
+    long leavePresence(String subredditName, String username, String clientSessionId);
 
     // Rules
     SubredditRuleDto addRule(String subredditName, SubredditRuleDto ruleDto);

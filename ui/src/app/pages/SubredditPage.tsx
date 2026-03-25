@@ -10,6 +10,7 @@ import { formatDistanceToNow } from 'date-fns';
 import {
   getSubredditByName,
   heartbeatSubredditPresence,
+  leaveSubredditPresence,
   joinSubredditMembership,
   leaveSubredditMembership,
   resignModeratorRole,
@@ -105,6 +106,11 @@ export default function SubredditPage() {
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+
+      // Best-effort removal on page exit/navigation.
+      void leaveSubredditPresence(token, subreddit).catch(() => {
+        // Ignore cleanup failures.
+      });
     };
   }, [subreddit, isAuthenticated, token]);
 
@@ -172,6 +178,13 @@ export default function SubredditPage() {
       }
 
       if (joined) {
+        try {
+          const onlineCount = await leaveSubredditPresence(token, subreddit);
+          setSubredditData((current) => (current ? { ...current, online: onlineCount } : current));
+        } catch {
+          // Membership action should proceed even if presence cleanup fails.
+        }
+
         await leaveSubredditMembership(token, subreddit);
         leaveSubreddit(subreddit);
         toast.success(`Left r/${subreddit}`);

@@ -54,6 +54,22 @@ public class PresenceService {
         }
     }
 
+    public long remove(String subredditName, String memberKey) {
+        String subredditKey = toSubredditKey(subredditName);
+        String presenceMember = toMemberKey(memberKey);
+        long now = System.currentTimeMillis();
+
+        try {
+            redisTemplate.opsForZSet().remove(subredditKey, presenceMember);
+            pruneExpired(subredditKey, now);
+            Long size = redisTemplate.opsForZSet().zCard(subredditKey);
+            return size != null ? size : 0;
+        } catch (RuntimeException ex) {
+            log.warn("Presence remove failed for key {}", subredditKey, ex);
+            return 0;
+        }
+    }
+
     private void pruneExpired(String subredditKey, long now) {
         double maxExpiredScore = now - ttlMs;
         redisTemplate.opsForZSet().removeRangeByScore(subredditKey, Double.NEGATIVE_INFINITY, maxExpiredScore);

@@ -44,9 +44,9 @@ interface CreateSubredditRequest {
 const DEFAULT_BANNER =
   'https://images.unsplash.com/photo-1504608524841-42fe6f032b4b?w=1200';
 const DEFAULT_ICON = 'r/';
-const PRESENCE_SESSION_STORAGE_KEY = 'presence_session_id';
+export const PRESENCE_SESSION_STORAGE_KEY = 'presence_session_id';
 
-function getPresenceSessionId(): string {
+export function getPresenceSessionId(): string {
   const existing = window.sessionStorage.getItem(PRESENCE_SESSION_STORAGE_KEY);
   if (existing) {
     return existing;
@@ -236,6 +236,27 @@ export async function heartbeatSubredditPresence(token: string, subredditName: s
     {
       method: 'POST',
       headers,
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  const onlineCount = (await response.json()) as number;
+  return Number.isFinite(onlineCount) ? onlineCount : 0;
+}
+
+export async function leaveSubredditPresence(token: string, subredditName: string): Promise<number> {
+  const presenceSessionId = getPresenceSessionId();
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/presence`,
+    {
+      method: 'DELETE',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'X-Presence-Session': presenceSessionId,
+      },
     }
   );
 

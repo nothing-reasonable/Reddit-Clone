@@ -276,11 +276,30 @@ public class SubredditServiceImpl implements SubredditService {
             return presenceService.countOnline(subreddit.getName());
         }
 
-        String presenceMemberKey = (clientSessionId == null || clientSessionId.isBlank())
-                ? username
-                : username + ":" + clientSessionId;
+        String presenceMemberKey = buildPresenceMemberKey(username, clientSessionId);
 
         return presenceService.touch(subreddit.getName(), presenceMemberKey);
+    }
+
+    @Override
+    public long leavePresence(String subredditName, String username, String clientSessionId) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        boolean isMember = memberRepository.existsBySubredditIdAndUsernameIgnoreCase(subreddit.getId(), username);
+        if (!isMember) {
+            return presenceService.countOnline(subreddit.getName());
+        }
+
+        String presenceMemberKey = buildPresenceMemberKey(username, clientSessionId);
+        return presenceService.remove(subreddit.getName(), presenceMemberKey);
+    }
+
+    private String buildPresenceMemberKey(String username, String clientSessionId) {
+        if (clientSessionId == null || clientSessionId.isBlank()) {
+            return username;
+        }
+        return username + ":" + clientSessionId;
     }
 
     // ───── Rules ─────

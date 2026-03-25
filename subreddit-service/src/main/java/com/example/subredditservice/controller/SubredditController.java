@@ -133,6 +133,16 @@ public class SubredditController {
         return ResponseEntity.ok(onlineCount);
     }
 
+    @DeleteMapping("/{name}/presence")
+    public ResponseEntity<Long> leavePresence(
+            @PathVariable String name,
+            @RequestHeader(value = "X-Presence-Session", required = false) String presenceSession,
+            Authentication authentication
+    ) {
+        long onlineCount = subredditService.leavePresence(name, authentication.getName(), presenceSession);
+        return ResponseEntity.ok(onlineCount);
+    }
+
     // ───── Bans ─────
 
     @PostMapping("/{name}/bans")
