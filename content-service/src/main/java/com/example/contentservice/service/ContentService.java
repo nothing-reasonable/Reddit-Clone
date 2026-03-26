@@ -170,8 +170,12 @@ public class ContentService {
 
 
     public Post getPost(String postId) {
-        return postRepository.findById(postId)
+        Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
+        if (post.isDeleted()) {
+            throw new ResourceNotFoundException("Post not found");
+        }
+        return post;
     }
 
     public Post updatePost(String postId, String requesterUsername, PostUpdateRequest request) {
