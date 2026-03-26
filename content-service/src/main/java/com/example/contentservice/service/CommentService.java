@@ -291,6 +291,13 @@ public class CommentService {
         Comment comment = getCommentById(commentId);
         comment.setRemoved(true);
         comment.setContent("[removed by moderator]");
-        return commentRepository.save(comment);
+        commentRepository.save(comment);
+
+        Post post = postRepository.findById(comment.getPostId())
+                .orElseThrow(() -> new ResourceNotFoundException("Post not found: " + comment.getPostId()));
+        post.setCommentCount(Math.max(0, post.getCommentCount() - 1));
+        postRepository.save(post);
+
+        return comment;
     }
 }
