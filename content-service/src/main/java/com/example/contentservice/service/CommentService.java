@@ -290,6 +290,7 @@ public class CommentService {
     public Comment removeComment(String commentId) {
         Comment comment = getCommentById(commentId);
         comment.setRemoved(true);
+        comment.setContent("[removed by moderator]");
         return commentRepository.save(comment);
     }
 }
