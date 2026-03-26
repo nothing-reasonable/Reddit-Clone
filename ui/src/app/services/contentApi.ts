@@ -35,6 +35,14 @@ interface ApiError {
   [key: string]: unknown;
 }
 
+function parseApiTimestamp(timestamp?: string): Date {
+  const value = (timestamp || '').trim();
+  if (!value) return new Date(NaN);
+
+  const hasTimezone = /[zZ]|[+\-]\d{2}:\d{2}$/.test(value);
+  return new Date(hasTimezone ? value : `${value}Z`);
+}
+
 async function parseApiError(response: Response): Promise<string> {
   try {
     const data = (await response.json()) as ApiError;
@@ -59,7 +67,7 @@ function mapPost(dto: ContentPostDto): Post {
     upvotes: dto.upvotes ?? 0,
     downvotes: dto.downvotes ?? 0,
     commentCount: dto.commentCount ?? 0,
-    createdAt: dto.createdAt ? new Date(dto.createdAt) : new Date(),
+    createdAt: dto.createdAt ? parseApiTimestamp(dto.createdAt) : new Date(),
     flair: dto.flair,
     flagged: dto.flagged ?? false,
     removed: dto.removed ?? false,

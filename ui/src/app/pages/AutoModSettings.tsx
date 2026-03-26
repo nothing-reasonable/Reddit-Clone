@@ -182,6 +182,7 @@ type AutoModLogStatus = 'removed' | 'flagged' | 'modmailed' | 'flair_set' | 'app
 interface AutoModUiLogEntry {
   id: string;
   rule: string;
+  targetType: string;
   target: string;
   author: string;
   timestamp: Date;
@@ -216,6 +217,19 @@ function resolveTargetDisplay(targetTitle?: string, targetType?: string, targetI
     return normalizedTitle;
   }
   return formatTargetContent(targetType || 'post', targetId || '');
+}
+
+function normalizeTargetType(targetType?: string): 'post' | 'comment' {
+  const normalized = (targetType || '').trim().toLowerCase();
+  return normalized === 'comment' ? 'comment' : 'post';
+}
+
+function parseApiTimestamp(timestamp?: string): Date {
+  const value = (timestamp || '').trim();
+  if (!value) return new Date(NaN);
+
+  const hasTimezone = /[zZ]|[+\-]\d{2}:\d{2}$/.test(value);
+  return new Date(hasTimezone ? value : `${value}Z`);
 }
 
 // ─── Empty Rule Template ────────────────────────────────────────────────────────
@@ -409,8 +423,8 @@ export default function AutoModSettings() {
             action: parsedAction,
             yamlContent: dto.yamlContent,
             lastEditedBy: dto.lastEditedBy,
-            lastEditedAt: new Date(dto.lastEditedAt),
-            createdAt: new Date(dto.createdAt),
+            lastEditedAt: parseApiTimestamp(dto.lastEditedAt),
+            createdAt: parseApiTimestamp(dto.createdAt),
           };
         }));
       })
@@ -484,6 +498,7 @@ export default function AutoModSettings() {
           return {
             id: entry.id,
             rule: entry.ruleName,
+            targetType: normalizeTargetType(entry.targetType),
             target: resolveTargetDisplay(entry.targetTitle, entry.targetType, entry.targetId),
             author: entry.targetAuthor,
             timestamp: entry.timestamp,
@@ -582,8 +597,8 @@ export default function AutoModSettings() {
           enabled: updatedRule.enabled,
           yamlContent: updatedRule.yamlContent,
           lastEditedBy: updatedRule.lastEditedBy,
-          lastEditedAt: new Date(updatedRule.lastEditedAt),
-          createdAt: new Date(updatedRule.createdAt),
+          lastEditedAt: parseApiTimestamp(updatedRule.lastEditedAt),
+          createdAt: parseApiTimestamp(updatedRule.createdAt),
         } : r));
         toast.success(updatedRule.enabled ? 'Rule enabled' : 'Rule disabled');
       })
@@ -655,7 +670,13 @@ export default function AutoModSettings() {
       // Update existing rule
       updateAutoModRule(token, subreddit!, editingRule.id, payload)
         .then((dto) => {
-          setRules(rules.map((r) => r.id === dto.id ? { ...r, ...payload, lastEditedBy: dto.lastEditedBy, lastEditedAt: new Date(dto.lastEditedAt) } : r));
+          setRules(rules.map((r) => r.id === dto.id ? {
+            ...r,
+            ...payload,
+            lastEditedBy: dto.lastEditedBy,
+            lastEditedAt: parseApiTimestamp(dto.lastEditedAt),
+            createdAt: parseApiTimestamp(dto.createdAt),
+          } : r));
           toast.success('Rule updated');
           setShowEditor(false);
           setEditingRule(null);
@@ -675,8 +696,8 @@ export default function AutoModSettings() {
             action: 'flag' as const,
             yamlContent: dto.yamlContent,
             lastEditedBy: dto.lastEditedBy,
-            lastEditedAt: new Date(dto.lastEditedAt),
-            createdAt: new Date(dto.createdAt),
+            lastEditedAt: parseApiTimestamp(dto.lastEditedAt),
+            createdAt: parseApiTimestamp(dto.createdAt),
           }]);
           toast.success('Rule created');
           setShowEditor(false);
@@ -1466,7 +1487,20 @@ export default function AutoModSettings() {
                         </div>
                       </td>
                       <td className="px-5 py-3 font-medium">{log.rule}</td>
-                      <td className="px-5 py-3 text-gray-600 max-w-[200px] truncate">{log.target}</td>
+                      <td className="px-5 py-3 text-gray-600 max-w-[240px]">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0 ${
+                              log.targetType === 'comment'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-emerald-100 text-emerald-700'
+                            }`}
+                          >
+                            {log.targetType}
+                          </span>
+                          <span className="truncate">{log.target}</span>
+                        </div>
+                      </td>
                       <td className="px-5 py-3">
                         <Link to={`/user/${log.author}`} className="text-blue-500 hover:underline">u/{log.author}</Link>
                       </td>

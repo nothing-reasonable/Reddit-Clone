@@ -48,6 +48,11 @@ const actionColors: Record<string, string> = {
   suggested_sort: 'bg-cyan-100 text-cyan-600',
 };
 
+function normalizeTargetType(targetType?: string): 'post' | 'comment' {
+  const normalized = (targetType || '').trim().toLowerCase();
+  return normalized === 'comment' ? 'comment' : 'post';
+}
+
 export default function AutoModLogs() {
   const { subreddit } = useParams<{ subreddit: string }>();
   const { user, token } = useAuth();
@@ -168,7 +173,15 @@ export default function AutoModLogs() {
                         <span className="font-medium">
                           {actionLabels[log.action] || log.action}
                         </span>
-                        <span className="text-gray-500">on {log.targetType}</span>
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${
+                            normalizeTargetType(log.targetType) === 'comment'
+                              ? 'bg-blue-100 text-blue-700'
+                              : 'bg-emerald-100 text-emerald-700'
+                          }`}
+                        >
+                          {normalizeTargetType(log.targetType)}
+                        </span>
                         {log.targetAuthor && (
                           <>
                             <span className="text-gray-500">by</span>

@@ -28,6 +28,14 @@ interface PaginatedResponse<T> {
   };
 }
 
+function parseApiTimestamp(timestamp?: string): Date {
+  const value = (timestamp || '').trim();
+  if (!value) return new Date(NaN);
+
+  const hasTimezone = /[zZ]|[+\-]\d{2}:\d{2}$/.test(value);
+  return new Date(hasTimezone ? value : `${value}Z`);
+}
+
 function mapComment(dto: CommentDto): Comment {
   return {
     id: dto.id,
@@ -37,7 +45,7 @@ function mapComment(dto: CommentDto): Comment {
     content: dto.removed ? '[removed]' : dto.content,
     upvotes: dto.upvotes,
     downvotes: dto.downvotes,
-    createdAt: new Date(dto.createdAt),
+    createdAt: parseApiTimestamp(dto.createdAt),
     removed: dto.removed,
     flagged: dto.flagged,
     reports: dto.reports,

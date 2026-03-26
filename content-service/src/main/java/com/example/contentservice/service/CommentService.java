@@ -1,5 +1,7 @@
 package com.example.contentservice.service;
 
+import com.example.contentservice.automod.AutoModContext;
+import com.example.contentservice.client.ModerationService;
 import com.example.contentservice.client.SubredditClient;
 import com.example.contentservice.dto.CommentCreateRequest;
 import com.example.contentservice.dto.CommentDto;
@@ -33,6 +35,7 @@ public class CommentService {
     private final CommentVoteRepository commentVoteRepository;
     private final PostRepository postRepository;
     private final SubredditClient subredditClient;
+    private final ModerationService moderationService;
 
     @Transactional
     public CommentDto createComment(String postId, String author, CommentCreateRequest request) {
@@ -93,6 +96,13 @@ public class CommentService {
 
         Comment savedComment = commentRepository.save(comment);
 
+        // Apply AutoMod rules - errors are non-fatal
+        try {
+            applyAutoModRules(savedComment, post);
+        } catch (Exception e) {
+            log.warn("Error applying AutoMod rules to comment {}: {}", savedComment.getId(), e.getMessage());
+        }
+
         // Reddit-style behavior: author has an initial upvote persisted.
         CommentVote initialAuthorVote = CommentVote.builder()
             .commentId(savedComment.getId())
@@ -107,6 +117,58 @@ public class CommentService {
 
         log.info("Comment created successfully: {} by {} on post {}", savedComment.getId(), author, postId);
         return mapToDto(savedComment);
+    }
+
+    /**
+     * Apply enabled AutoMod rules to a comment.
+     * Rules may flag or remove the comment based on conditions.
+     */
+    private void applyAutoModRules(Comment comment, Post post) {
+        String subreddit = post.getSubreddit();
+        log.info("Applying AutoMod rules to comment {} in r/{}", comment.getId(), subreddit);
+        List<ModerationService.RuleDto> rules = moderationService.getRulesForSubreddit(subreddit);
+        log.info("Found {} AutoMod rules for r/{}", rules.size(), subreddit);
+        if (rules.isEmpty()) return;
+
+        AutoModContext context = buildAutoModContext(comment);
+
+        for (ModerationService.RuleDto rule : rules) {
+            if (rule == null || rule.getYamlContent() == null) continue;
+
+            ModerationService.AutoModEvaluationResponse result =
+                    moderationService.evaluateRule(rule.getYamlContent(), context.toMap(),
+                                                   rule.getId(), rule.getName(), subreddit);
+
+            if (result.isTriggered()) {
+                String action = result.getAction();
+                log.info("AutoMod rule '{}' triggered on comment {} - action: {}", rule.getName(), comment.getId(), action);
+                if ("remove".equals(action)) {
+                    comment.setRemoved(true);
+                    log.info("Comment {} removed by AutoMod", comment.getId());
+                } else if ("flag".equals(action) || "filter".equals(action)) {
+                    comment.setFlagged(true);
+                    log.info("Comment {} flagged by AutoMod", comment.getId());
+                }
+            }
+        }
+        commentRepository.save(comment);
+    }
+
+    /**
+     * Build AutoModContext from a Comment for rule evaluation.
+     */
+    private AutoModContext buildAutoModContext(Comment comment) {
+        AutoModContext context = new AutoModContext();
+        context.setBody(comment.getContent());
+        context.setAuthor(comment.getAuthor());
+        context.setSubmissionType("comment");
+
+        // Default values - real values would require user-service integration
+        context.setAuthorAccountAge("30 days");
+        context.setAuthorKarma(100);
+        // Evaluate rules for all users by default.
+        context.setIsModerator(false);
+        return context;
     }
 
     @Transactional
