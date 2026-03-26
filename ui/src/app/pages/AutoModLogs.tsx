@@ -6,7 +6,7 @@ import { getSubredditByName } from '../services/subredditApi';
 import { getAutoModLogs } from '../services/moderationApi';
 import type { AutoModLogEntry, Subreddit } from '../types/domain';
 import { Bot, FileText, Trash2, Flag, Mail, Tag, Eye, Lock, Zap, ArrowLeft, Filter } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 
 const actionLabels: Record<string, string> = {
   remove: 'Removed',
@@ -188,8 +188,9 @@ export default function AutoModLogs() {
                         </p>
                       )}
                     </div>
-                    <div className="text-xs text-gray-400 shrink-0">
-                      {formatDistanceToNow(log.timestamp, { addSuffix: true })}
+                    <div className="text-xs shrink-0 text-right">
+                      <div className="text-gray-700">{format(log.timestamp, "MMM d, yyyy 'at' h:mm a")}</div>
+                      <div className="text-gray-400">{formatDistanceToNow(log.timestamp, { addSuffix: true })}</div>
                     </div>
                   </div>
                 </div>

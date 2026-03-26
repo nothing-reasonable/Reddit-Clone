@@ -25,7 +25,7 @@ public class AutoModLogService {
      * Called from AutoModEngine when a rule is triggered.
      */
     public void logAction(String subredditName, String ruleId, String ruleName, String action,
-                         String targetType, String targetId, String targetAuthor, String reason) {
+                         String targetType, String targetId, String targetAuthor, String targetTitle, String reason) {
         AutoModLog autoModLog = AutoModLog.builder()
             .id(UUID.randomUUID().toString())
             .subredditName(subredditName)
@@ -35,6 +35,7 @@ public class AutoModLogService {
             .targetType(targetType)
             .targetId(targetId)
             .targetAuthor(targetAuthor)
+            .targetTitle(targetTitle)
             .reason(reason)
             .timestamp(LocalDateTime.now())
             .build();

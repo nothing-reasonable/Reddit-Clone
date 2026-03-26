@@ -84,6 +84,7 @@ export interface AutoModLogEntry {
   targetType: string; // 'post' or 'comment'
   targetId: string;
   targetAuthor: string;
+  targetTitle?: string;
   reason?: string;
   timestamp: Date;
 }

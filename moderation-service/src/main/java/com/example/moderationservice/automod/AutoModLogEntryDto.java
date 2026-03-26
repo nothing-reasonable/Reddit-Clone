@@ -35,6 +35,9 @@ public class AutoModLogEntryDto {
     @JsonProperty("targetAuthor")
     private String targetAuthor;
 
+    @JsonProperty("targetTitle")
+    private String targetTitle;
+
     @JsonProperty("reason")
     private String reason;
 
@@ -51,6 +54,7 @@ public class AutoModLogEntryDto {
             .targetType(log.getTargetType())
             .targetId(log.getTargetId())
             .targetAuthor(log.getTargetAuthor())
+            .targetTitle(log.getTargetTitle())
             .reason(log.getReason())
             .timestamp(log.getTimestamp())
             .build();

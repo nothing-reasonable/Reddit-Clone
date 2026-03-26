@@ -6,7 +6,7 @@ import { getSubredditByName } from '../services/subredditApi';
 import { getModLog } from '../services/moderationApi';
 import type { ModLogEntry, Subreddit } from '../types/domain';
 import { FileText, Shield, Gavel, UserX, Eye, Lock, Pin, Tag, BookOpen, ArrowLeft, Filter } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, format } from 'date-fns';
 
 const actionLabels: Record<string, string> = {
   remove_post: 'Removed Post',
@@ -193,8 +193,9 @@ export default function ModLog() {
                         </p>
                       )}
                     </div>
-                    <div className="text-xs text-gray-400 shrink-0">
-                      {formatDistanceToNow(log.timestamp, { addSuffix: true })}
+                    <div className="text-xs shrink-0 text-right whitespace-nowrap">
+                      <div className="text-gray-700">{format(log.timestamp, "MMM d, yyyy 'at' h:mm a")}</div>
+                      <div className="text-gray-400">{formatDistanceToNow(log.timestamp, { addSuffix: true })}</div>
                     </div>
                   </div>
                 </div>

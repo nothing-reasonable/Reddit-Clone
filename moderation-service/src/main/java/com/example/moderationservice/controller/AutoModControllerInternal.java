@@ -61,6 +61,7 @@ public class AutoModControllerInternal {
                     (context.getType().toLowerCase().contains("comment") ? "comment" : "post") : "post";
                 String targetId = context.getId() != null ? context.getId() : "unknown";
                 String targetAuthor = context.getAuthor() != null ? context.getAuthor() : "unknown";
+                String targetTitle = resolveTargetTitle(context);
                 String reason = result.getMessage() != null ? result.getMessage() : 
                     (request.getRuleName() != null ? request.getRuleName() : "AutoMod rule triggered");
 
@@ -73,6 +74,7 @@ public class AutoModControllerInternal {
                     targetType,
                     targetId,
                     targetAuthor,
+                    targetTitle,
                     reason
                 );
             }
@@ -141,6 +143,27 @@ public class AutoModControllerInternal {
         else if (isMod instanceof String) context.setIsModerator(Boolean.parseBoolean((String) isMod));
 
         return context;
+    }
+
+    private String resolveTargetTitle(AutoModContext context) {
+        String title = context.getTitle();
+        if (title != null && !title.isBlank()) {
+            return truncate(title.trim(), 220);
+        }
+
+        String body = context.getBody();
+        if (body != null && !body.isBlank()) {
+            return truncate(body.trim(), 220);
+        }
+
+        return null;
+    }
+
+    private String truncate(String value, int maxLength) {
+        if (value.length() <= maxLength) {
+            return value;
+        }
+        return value.substring(0, maxLength - 1) + "…";
     }
 
     // ─── DTO Classes ──────────────────────────────────────────────────────────

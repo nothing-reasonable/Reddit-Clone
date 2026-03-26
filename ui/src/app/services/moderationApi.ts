@@ -1,5 +1,13 @@
 const MODERATION_SERVICE_URL = 'http://localhost:8084';
 
+function parseApiTimestamp(timestamp: string): Date {
+  const value = (timestamp || '').trim();
+  if (!value) return new Date(NaN);
+
+  const hasTimezone = /[zZ]|[+\-]\d{2}:\d{2}$/.test(value);
+  return new Date(hasTimezone ? value : `${value}Z`);
+}
+
 export interface ModQueueItem {
   id: string;
   postId?: string;
@@ -144,7 +152,7 @@ export async function getModLog(token: string, subreddit: string): Promise<impor
     action: entry.action,
     targetContent: entry.targetContent,
     targetUser: entry.targetUser,
-    timestamp: new Date(entry.timestamp),
+    timestamp: parseApiTimestamp(entry.timestamp),
   }));
 }
 
@@ -156,6 +164,7 @@ export interface AutoModLogEntryDto {
   targetType: string;
   targetId: string;
   targetAuthor: string;
+  targetTitle?: string;
   reason?: string;
   timestamp: string;
 }
@@ -177,8 +186,9 @@ export async function getAutoModLogs(token: string, subreddit: string, action?: 
     targetType: entry.targetType,
     targetId: entry.targetId,
     targetAuthor: entry.targetAuthor,
+    targetTitle: entry.targetTitle,
     reason: entry.reason,
-    timestamp: new Date(entry.timestamp),
+    timestamp: parseApiTimestamp(entry.timestamp),
   }));
 }
 

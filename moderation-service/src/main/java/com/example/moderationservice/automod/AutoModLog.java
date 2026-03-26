@@ -46,6 +46,9 @@ public class AutoModLog {
     private String targetAuthor;
 
     @Column(columnDefinition = "TEXT")
+    private String targetTitle;
+
+    @Column(columnDefinition = "TEXT")
     private String reason; // Rule message/reason
 
     @Column(nullable = false)

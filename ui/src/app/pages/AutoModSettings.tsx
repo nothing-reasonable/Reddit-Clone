@@ -5,12 +5,12 @@ import { useEffect, useState } from 'react';
 import {
   Settings, Plus, Trash2, Save, Shield, ArrowLeft, Play, History, FileText,
   Terminal, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronUp,
-  Copy, Pencil, Mail, Lock, Pin, Tag, X, Info, Loader2,
+  Copy, Pencil, Mail, Lock, Pin, Tag, X, Info, Loader2, Flag,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow, format } from 'date-fns';
-import yaml from 'js-yaml';
-import { testCustomRule, testSavedRules, getAutoModRules, createAutoModRule, updateAutoModRule, toggleAutoModRule, deleteAutoModRule, getAutoModHistory } from '../services/moderationApi';
+import * as yaml from 'js-yaml';
+import { testCustomRule, testSavedRules, getAutoModRules, createAutoModRule, updateAutoModRule, toggleAutoModRule, deleteAutoModRule, getAutoModHistory, getAutoModLogs } from '../services/moderationApi';
 import type { AutoModRuleDto, AutoModHistoryEntry } from '../services/moderationApi';
 import { getSubredditByName } from '../services/subredditApi';
 import type { Subreddit } from '../types/domain';
@@ -176,6 +176,47 @@ function createSeedRules(sub: string): RichAutoModRule[] {
 const MOCK_EDIT_HISTORY: Array<{ id: string; ruleName: string; editor: string; field: string; oldValue: string; newValue: string; timestamp: Date }> = [];
 
 const MOCK_LOGS: Array<{ id: string; rule: string; action: ActionType; target: string; author: string; timestamp: Date; status: 'removed' | 'flagged' | 'modmailed' | 'flair_set'; modmailSent: boolean }> = [];
+
+type AutoModLogStatus = 'removed' | 'flagged' | 'modmailed' | 'flair_set' | 'approved';
+
+interface AutoModUiLogEntry {
+  id: string;
+  rule: string;
+  target: string;
+  author: string;
+  timestamp: Date;
+  status: AutoModLogStatus;
+  modmailSent: boolean;
+}
+
+function mapActionToStatus(action: string): AutoModLogStatus {
+  if (action === 'remove') return 'removed';
+  if (action === 'flag') return 'flagged';
+  if (action === 'send_modmail') return 'modmailed';
+  if (action === 'set_flair') return 'flair_set';
+  if (action === 'approve') return 'approved';
+  return 'flagged';
+}
+
+function formatTargetContent(targetType: string, targetId: string): string {
+  const normalizedType = (targetType || 'post').trim().toLowerCase();
+  const prettyType = normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1);
+  const normalizedId = (targetId || '').trim();
+
+  if (!normalizedId || normalizedId.toLowerCase() === 'unknown') {
+    return prettyType;
+  }
+
+  return `${prettyType} · ${normalizedId}`;
+}
+
+function resolveTargetDisplay(targetTitle?: string, targetType?: string, targetId?: string): string {
+  const normalizedTitle = (targetTitle || '').trim();
+  if (normalizedTitle.length > 0) {
+    return normalizedTitle;
+  }
+  return formatTargetContent(targetType || 'post', targetId || '');
+}
 
 // ─── Empty Rule Template ────────────────────────────────────────────────────────
 
@@ -428,10 +469,46 @@ export default function AutoModSettings() {
 
   // Logs filter
   const [logFilter, setLogFilter] = useState<'all' | 'removed' | 'flagged' | 'modmailed' | 'flair_set'>('all');
+  const [automodLogs, setAutomodLogs] = useState<AutoModUiLogEntry[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!subreddit || !token) return;
+    let cancelled = false;
+    setLogsLoading(true);
+    getAutoModLogs(token, subreddit)
+      .then((entries) => {
+        if (cancelled) return;
+        const mapped: AutoModUiLogEntry[] = entries.map((entry) => {
+          const status = mapActionToStatus(entry.action);
+          return {
+            id: entry.id,
+            rule: entry.ruleName,
+            target: resolveTargetDisplay(entry.targetTitle, entry.targetType, entry.targetId),
+            author: entry.targetAuthor,
+            timestamp: entry.timestamp,
+            status,
+            modmailSent: status === 'modmailed',
+          };
+        });
+        setAutomodLogs(mapped.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAutomodLogs([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLogsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [subreddit, token]);
 
   const parseCustomYamlDocuments = (rawYaml: string): string[] => {
     const parsedDocs: unknown[] = [];
-    yaml.loadAll(rawYaml, (doc) => {
+    yaml.loadAll(rawYaml, (doc: unknown) => {
       if (doc !== undefined && doc !== null) {
         parsedDocs.push(doc);
       }
@@ -499,10 +576,14 @@ export default function AutoModSettings() {
     toggleAutoModRule(token, subreddit!, id, newEnabled)
       .then((updatedRule) => {
         // Use the returned rule from server for accurate state
-        setRules(rules.map((r) => r.id === id ? { 
-          ...r, 
-          ...updatedRule,
-          lastEditedAt: new Date(updatedRule.lastEditedAt || new Date())
+        setRules(rules.map((r) => r.id === id ? {
+          ...r,
+          name: updatedRule.name,
+          enabled: updatedRule.enabled,
+          yamlContent: updatedRule.yamlContent,
+          lastEditedBy: updatedRule.lastEditedBy,
+          lastEditedAt: new Date(updatedRule.lastEditedAt),
+          createdAt: new Date(updatedRule.createdAt),
         } : r));
         toast.success(updatedRule.enabled ? 'Rule enabled' : 'Rule disabled');
       })
@@ -745,10 +826,10 @@ export default function AutoModSettings() {
     { id: 'rules' as const, label: 'Rules', icon: Shield, count: rules.length },
     { id: 'history' as const, label: 'Rule History', icon: History },
     { id: 'test' as const, label: 'TestPlayground', icon: Terminal },
-    { id: 'logs' as const, label: 'Logs', icon: FileText, count: MOCK_LOGS.length },
+    { id: 'logs' as const, label: 'Logs', icon: FileText, count: automodLogs.length },
   ];
 
-  const filteredLogs = logFilter === 'all' ? MOCK_LOGS : MOCK_LOGS.filter((l) => l.status === logFilter);
+  const filteredLogs = logFilter === 'all' ? automodLogs : automodLogs.filter((l) => l.status === logFilter);
 
   // ─── Render ────────────────────────────────────────────────────────────────────
 
@@ -1360,32 +1441,32 @@ export default function AutoModSettings() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredLogs.map((log) => {
-                  const statusColors: Record<string, string> = {
-                    removed: 'bg-red-100 text-red-700',
-                    flagged: 'bg-orange-100 text-orange-700',
-                    modmailed: 'bg-blue-100 text-blue-700',
-                    flair_set: 'bg-teal-100 text-teal-700',
-                    approved: 'bg-green-100 text-green-700',
+                {logsLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-8 text-center text-gray-400">Loading log entries...</td>
+                  </tr>
+                ) : filteredLogs.map((log) => {
+                  const actionVisuals: Record<string, { Icon: typeof Shield; iconClasses: string; label: string }> = {
+                    removed: { Icon: Trash2, iconClasses: 'bg-red-100 text-red-600', label: 'Removed' },
+                    flagged: { Icon: Flag, iconClasses: 'bg-orange-100 text-orange-600', label: 'Flagged' },
+                    modmailed: { Icon: Mail, iconClasses: 'bg-blue-100 text-blue-600', label: 'Modmailed' },
+                    flair_set: { Icon: Tag, iconClasses: 'bg-purple-100 text-purple-600', label: 'Flair Set' },
+                    approved: { Icon: CheckCircle, iconClasses: 'bg-green-100 text-green-600', label: 'Approved' },
                   };
-                  const StatusIcon: Record<string, typeof Shield> = {
-                    removed: XCircle,
-                    flagged: AlertTriangle,
-                    modmailed: Mail,
-                    flair_set: Tag,
-                    approved: CheckCircle,
-                  };
-                  const SIcon = StatusIcon[log.status] || AlertTriangle;
+                  const visual = actionVisuals[log.status] || actionVisuals.flagged;
+                  const StatusIcon = visual.Icon;
                   return (
                     <tr key={log.id} className="hover:bg-gray-50">
                       <td className="px-5 py-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded-full ${statusColors[log.status] || 'bg-gray-100 text-gray-600'}`}>
-                          <SIcon className="w-3 h-3" />
-                          {log.status === 'flair_set' ? 'Flair Set' : log.status.charAt(0).toUpperCase() + log.status.slice(1)}
-                        </span>
+                        <div className="inline-flex items-center gap-2">
+                          <span className={`w-7 h-7 rounded-full flex items-center justify-center ${visual.iconClasses}`}>
+                            <StatusIcon className="w-3.5 h-3.5" />
+                          </span>
+                          <span className="text-xs font-semibold text-gray-700">{visual.label}</span>
+                        </div>
                       </td>
                       <td className="px-5 py-3 font-medium">{log.rule}</td>
-                      <td className="px-5 py-3 text-gray-600 max-w-[200px] truncate">"{log.target}"</td>
+                      <td className="px-5 py-3 text-gray-600 max-w-[200px] truncate">{log.target}</td>
                       <td className="px-5 py-3">
                         <Link to={`/user/${log.author}`} className="text-blue-500 hover:underline">u/{log.author}</Link>
                       </td>
@@ -1396,13 +1477,14 @@ export default function AutoModSettings() {
                           <span className="text-gray-300 text-xs">&mdash;</span>
                         )}
                       </td>
-                      <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">
-                        {formatDistanceToNow(log.timestamp, { addSuffix: true })}
+                      <td className="px-5 py-3 text-xs whitespace-nowrap">
+                        <div className="text-gray-700">{format(log.timestamp, "MMM d, yyyy 'at' h:mm a")}</div>
+                        <div className="text-gray-400">{formatDistanceToNow(log.timestamp, { addSuffix: true })}</div>
                       </td>
                     </tr>
                   );
                 })}
-                {filteredLogs.length === 0 && (
+                {!logsLoading && filteredLogs.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-5 py-8 text-center text-gray-400">No log entries match this filter.</td>
                   </tr>
