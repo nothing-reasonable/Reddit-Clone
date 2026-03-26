@@ -38,13 +38,10 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
   const { token, user } = useAuth();
 
   const reportedKey = user ? `reportedPosts_${user.username}` : null;
-  // Button is red if: post is flagged OR has reports, OR was reported by this user (from localStorage)
-  // After approval (flagged=false, reports=0), button turns gray regardless of localStorage
-  const isPostFlaggedOrReported = post.flagged || (post.reports ?? 0) > 0;
   const wasReportedByUser = reportedKey
     ? (JSON.parse(localStorage.getItem(reportedKey) ?? '[]') as string[]).includes(post.id)
     : false;
-  const alreadyReported = !!post.flagged || wasReportedByUser;
+  const [hasReported, setHasReported] = useState(wasReportedByUser);
   const [userVote, setUserVote] = useState<-1 | 0 | 1>(0);
   const [score, setScore] = useState(post.upvotes - post.downvotes);
   const [isDeleted, setIsDeleted] = useState(post.author === '[deleted]');
@@ -165,6 +162,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
         const reported = JSON.parse(localStorage.getItem(reportedKey) ?? '[]') as string[];
         localStorage.setItem(reportedKey, JSON.stringify([...reported, post.id]));
       }
+      setHasReported(true);
       toast.success('Report submitted. Thank you!');
       setShowReportModal(false);
       setReportReason('');
@@ -247,12 +245,6 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
                 u/{isDeleted ? '[deleted]' : post.author}
               </Link>
               <span>{formatDistanceToNow(post.createdAt, { addSuffix: true })}</span>
-              {post.flagged && (
-                <span className="flex items-center gap-0.5 text-red-500 font-semibold">
-                  <Flag className="w-3 h-3" />
-                  FLAGGED
-                </span>
-              )}
               {post.locked && (
                 <span className="text-yellow-600 font-semibold">🔒 LOCKED</span>
               )}
@@ -324,16 +316,16 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
-                  if (isPostFlaggedOrReported) {
-                    toast.warning('This post is already flagged or reported.');
+                  if (hasReported) {
+                    toast.warning('You have already reported this post.');
                   } else {
                     setShowReportModal(true);
                   }
                 }}
-                className={`flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-gray-100 rounded text-xs font-semibold ${isPostFlaggedOrReported ? 'text-red-400 cursor-default' : 'text-gray-500'}`}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-gray-100 rounded text-xs font-semibold ${hasReported ? 'text-red-400 cursor-default' : 'text-gray-500'}`}
               >
                 <Flag className="w-4 h-4" />
-                <span className="hidden sm:inline">Report</span>
+                <span className="hidden sm:inline">{hasReported ? 'Reported' : 'Report'}</span>
               </button>
             </div>
           </div>

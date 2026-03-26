@@ -262,6 +262,7 @@ public class CommentService {
                 .removed(comment.isRemoved())
                 .flagged(comment.isFlagged())
                 .reports(comment.getReports())
+                .reportReasons(comment.getReportReasons())
                 .build();
     }
 

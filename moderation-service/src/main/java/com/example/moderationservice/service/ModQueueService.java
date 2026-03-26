@@ -13,9 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -54,32 +52,22 @@ public class ModQueueService {
         if (postsPage != null && postsPage.getContent() != null) {
             items.addAll(postsPage.getContent().stream()
                     .map(post -> {
+                        List<String> sortedReasons = parseAndSortReasons(post.getReportReasons());
                         String flagReason;
-                        
-                        // Distinguish between AutoMod-flagged and user-reported
-                        if (post.getReports() > 0 && post.getReportReasons() != null && !post.getReportReasons().isEmpty()) {
-                            // User reported - extract reason
-                            flagReason = "User reported";
-                            try {
-                                ObjectMapper mapper = new ObjectMapper();
-                                JsonNode reasons = mapper.readTree(post.getReportReasons());
-                                if (reasons.isArray() && reasons.size() > 0) {
-                                    flagReason = reasons.get(0).asText();
-                                }
-                            } catch (Exception e) {
-                                // Fallback to default if parsing fails
-                            }
+
+                        if (post.getReports() > 0 && !sortedReasons.isEmpty()) {
+                            flagReason = sortedReasons.get(0);
                         } else {
-                            // AutoMod flagged - no user reports
                             flagReason = "Flagged by AutoMod";
                         }
-                        
+
                         return ModQueueItem.builder()
                                 .id(post.getId())
                                 .type("post")
                                 .status("pending")
                                 .flagReason(flagReason)
                                 .reportCount(post.getReports())
+                                .reportReasonsList(sortedReasons)
                                 .contentTitle(post.getTitle())
                                 .contentBody(post.getContent())
                                 .author(post.getAuthor())
@@ -91,26 +79,15 @@ public class ModQueueService {
         if (commentsPage != null && commentsPage.getContent() != null) {
             items.addAll(commentsPage.getContent().stream()
                     .map(comment -> {
+                        List<String> sortedReasons = parseAndSortReasons(comment.getReportReasons());
                         String flagReason;
-                        
-                        // Distinguish between AutoMod-flagged and user-reported
-                        if (comment.getReports() > 0 && comment.getReportReasons() != null && !comment.getReportReasons().isEmpty()) {
-                            // User reported - extract reason
-                            flagReason = "User reported";
-                            try {
-                                ObjectMapper mapper = new ObjectMapper();
-                                JsonNode reasons = mapper.readTree(comment.getReportReasons());
-                                if (reasons.isArray() && reasons.size() > 0) {
-                                    flagReason = reasons.get(0).asText();
-                                }
-                            } catch (Exception e) {
-                                // Fallback to default if parsing fails
-                            }
+
+                        if (comment.getReports() > 0 && !sortedReasons.isEmpty()) {
+                            flagReason = sortedReasons.get(0);
                         } else {
-                            // AutoMod flagged - no user reports
                             flagReason = "Flagged by AutoMod";
                         }
-                        
+
                         return ModQueueItem.builder()
                                 .id(comment.getId())
                                 .postId(comment.getPostId())
@@ -118,6 +95,7 @@ public class ModQueueService {
                                 .status("pending")
                                 .flagReason(flagReason)
                                 .reportCount(comment.getReports())
+                                .reportReasonsList(sortedReasons)
                                 .contentTitle("Comment by " + comment.getAuthor())
                                 .contentBody(comment.getContent())
                                 .author(comment.getAuthor())
@@ -139,6 +117,36 @@ public class ModQueueService {
         response.setSize(items.size());
         response.setNumber(page);
         return response;
+    }
+
+    /**
+     * Parse a JSON array of reason strings, count frequency, and return unique reasons
+     * sorted by frequency descending (most reported reason first).
+     */
+    private List<String> parseAndSortReasons(String reportReasonsJson) {
+        if (reportReasonsJson == null || reportReasonsJson.isEmpty()) {
+            return List.of();
+        }
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            JsonNode reasons = mapper.readTree(reportReasonsJson);
+            if (!reasons.isArray() || reasons.size() == 0) {
+                return List.of();
+            }
+            // Count frequency of each reason
+            Map<String, Integer> freq = new LinkedHashMap<>();
+            for (JsonNode node : reasons) {
+                String reason = node.asText();
+                freq.merge(reason, 1, Integer::sum);
+            }
+            // Sort by frequency descending, then return formatted strings
+            return freq.entrySet().stream()
+                    .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                    .map(e -> e.getValue() > 1 ? e.getKey() + " (" + e.getValue() + ")" : e.getKey())
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            return List.of();
+        }
     }
 
     public Map<String, Integer> bulkModQueueAction(String subreddit, ModQueueActionRequest request) {

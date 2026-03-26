@@ -44,6 +44,11 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState('');
   const [showCommentMenu, setShowCommentMenu] = useState(false);
+  const reportedCommentsKey = user ? `reportedComments_${user.username}` : null;
+  const wasReportedByUser = reportedCommentsKey
+    ? (JSON.parse(localStorage.getItem(reportedCommentsKey) ?? '[]') as string[]).includes(node.id)
+    : false;
+  const [hasReported, setHasReported] = useState(wasReportedByUser);
 
   const canDeleteComment = !!user && user.username === node.author;
 
@@ -96,22 +101,25 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
   };
 
   const getReportReasonsDisplay = (): string => {
-    // If there are user reports (reports > 0), try to show the reason
-    if (node.reports && node.reports > 0) {
-      if (node.reportReasons) {
-        try {
-          const reasons = JSON.parse(node.reportReasons);
-          if (Array.isArray(reasons) && reasons.length > 0) {
-            return `Reported for: ${reasons[0]}${reasons.length > 1 ? ` (+${reasons.length - 1} more)` : ''}`;
+    if (node.reportReasons) {
+      try {
+        const reasons = JSON.parse(node.reportReasons) as string[];
+        if (Array.isArray(reasons) && reasons.length > 0) {
+          // Count frequency of each reason and sort descending
+          const freq: Record<string, number> = {};
+          for (const r of reasons) {
+            freq[r] = (freq[r] || 0) + 1;
           }
-        } catch {
-          // If parsing fails, just show user reported
-          return 'User reported';
+          const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+          return sorted.map(([reason, count]) => count > 1 ? `${reason} (${count})` : reason).join(', ');
         }
+      } catch {
+        return 'User reported';
       }
+    }
+    if (node.reports && node.reports > 0) {
       return 'User reported';
     }
-    // No user reports, so it's AutoMod flagged
     return 'Flagged by AutoMod';
   };
 
@@ -123,6 +131,11 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
     setIsReporting(true);
     try {
       await reportComment(node.postId, node.id, reportReason);
+      setHasReported(true);
+      if (reportedCommentsKey) {
+        const reported = JSON.parse(localStorage.getItem(reportedCommentsKey) ?? '[]') as string[];
+        localStorage.setItem(reportedCommentsKey, JSON.stringify([...reported, node.id]));
+      }
       toast.success('Comment reported successfully');
       setShowReportModal(false);
       setReportReason('');
@@ -247,17 +260,17 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
                     Reply
                   </button>
 
-                  <button 
+                  <button
                     onClick={handleReport}
                     className={`flex items-center gap-1 text-xs font-medium ml-1 ${
-                      (node.flagged || (node.reports ?? 0) > 0)
+                      hasReported
                         ? 'text-red-500 cursor-not-allowed'
                         : 'text-gray-500 hover:text-red-500'
                     }`}
-                    disabled={(node.flagged || (node.reports ?? 0) > 0)}
+                    disabled={hasReported}
                   >
                     <Flag className="w-3.5 h-3.5" />
-                    {(node.flagged || (node.reports ?? 0) > 0) ? 'Reported' : 'Report'}
+                    {hasReported ? 'Reported' : 'Report'}
                   </button>
                   
                   {(_isModerator || node.author === "moderator") && onDelete && (

@@ -397,15 +397,19 @@ export default function ModQueue() {
                   </div>
                   <h3 className="font-bold text-lg mb-1">{item.contentTitle}</h3>
                   <p className="text-sm text-gray-700 mb-2 line-clamp-2">{item.contentBody}</p>
-                  {item.flagReason && (
-                    <div className={`inline-block px-3 py-1 text-sm rounded-full ${
-                      item.reportCount > 0 
-                        ? 'bg-red-100 text-red-700' 
-                        : 'bg-yellow-100 text-yellow-700'
-                    }`}>
-                      {item.reportCount > 0 ? 'Reason: ' : 'AutoMod Reason: '}{item.flagReason}
+                  {item.reportCount > 0 && item.reportReasonsList && item.reportReasonsList.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                      {item.reportReasonsList.map((reason, idx) => (
+                        <span key={idx} className="inline-block px-3 py-1 text-sm rounded-full bg-red-100 text-red-700">
+                          {reason}
+                        </span>
+                      ))}
                     </div>
-                  )}
+                  ) : item.flagReason ? (
+                    <div className="inline-block px-3 py-1 text-sm rounded-full bg-yellow-100 text-yellow-700">
+                      AutoMod Reason: {item.flagReason}
+                    </div>
+                  ) : null}
                 </div>
                 <div className="flex flex-col gap-2">
                   <Link

@@ -1,5 +1,6 @@
 package com.example.moderationservice.service;
 
+import com.example.moderationservice.dto.CommentDto;
 import com.example.moderationservice.dto.ModActionResponse;
 import com.example.moderationservice.dto.PostDto;
 
@@ -46,7 +47,7 @@ public class ModActionService {
                     .build();
         }
 
-        // Log the action to modlog
+        // Log the post action to modlog
         logModAction(action, moderator, subreddit, updatedPost);
 
         return ModActionResponse.builder()
@@ -67,14 +68,14 @@ public class ModActionService {
         String url = contentServiceBaseUrl + "/api/internal/posts/" + postId + "/comments/" + commentId + "/" + action;
 
         try {
-            PostDto updatedComment = restClient.patch()
+            CommentDto updatedComment = restClient.patch()
                     .uri(url)
                     .retrieve()
-                    .body(PostDto.class);
+                    .body(CommentDto.class);
 
             if (updatedComment != null) {
-                // Log the action to modlog
-                logModAction(action, moderator, subreddit, updatedComment);
+                // Log the action to modlog with comment-specific action
+                logCommentModAction(action, moderator, subreddit, updatedComment);
 
                 return ModActionResponse.builder()
                         .postId(postId)
@@ -88,7 +89,7 @@ public class ModActionService {
                         .build();
             }
         } catch (Exception e) {
-            // Comment not found or error
+            log.error("Failed to execute comment action: commentId={}, postId={}, action={}", commentId, postId, action, e);
         }
 
         return ModActionResponse.builder()
@@ -101,23 +102,49 @@ public class ModActionService {
     }
 
     /**
-     * Log the moderation action to the modlog database.
+     * Log a post moderation action to the modlog database.
      */
     private void logModAction(String action, String moderator, String subreddit, PostDto post) {
         try {
-            ModAction modAction = mapStringToModAction(action);
+            ModAction modAction = mapStringToModAction(action, false);
             ModLog savedLog = modLogService.logAction(
                     subreddit,
                     moderator,
                     modAction,
-                    post.getAuthor(),  // target user
-                    post.getTitle(),    // target content
-                    null                // reason (caller can add via API)
+                    post.getAuthor(),
+                    post.getTitle(),
+                    null
             );
-            log.info("ModLog saved successfully: id={}, action={}, subreddit={}, moderator={}", 
+            log.info("ModLog saved successfully: id={}, action={}, subreddit={}, moderator={}",
                     savedLog.getId(), modAction, subreddit, moderator);
         } catch (Exception e) {
-            log.error("Failed to log moderation action: action={}, subreddit={}, moderator={}", 
+            log.error("Failed to log moderation action: action={}, subreddit={}, moderator={}",
+                    action, subreddit, moderator, e);
+        }
+    }
+
+    /**
+     * Log a comment moderation action to the modlog database.
+     */
+    private void logCommentModAction(String action, String moderator, String subreddit, CommentDto comment) {
+        try {
+            ModAction modAction = mapStringToModAction(action, true);
+            String targetContent = "Comment by " + comment.getAuthor() + ": " +
+                    (comment.getContent() != null && comment.getContent().length() > 100
+                            ? comment.getContent().substring(0, 100) + "..."
+                            : comment.getContent());
+            ModLog savedLog = modLogService.logAction(
+                    subreddit,
+                    moderator,
+                    modAction,
+                    comment.getAuthor(),
+                    targetContent,
+                    null
+            );
+            log.info("ModLog saved successfully: id={}, action={}, subreddit={}, moderator={}",
+                    savedLog.getId(), modAction, subreddit, moderator);
+        } catch (Exception e) {
+            log.error("Failed to log comment moderation action: action={}, subreddit={}, moderator={}",
                     action, subreddit, moderator, e);
         }
     }
@@ -125,10 +152,10 @@ public class ModActionService {
     /**
      * Map action string to ModAction enum.
      */
-    private ModAction mapStringToModAction(String action) {
+    private ModAction mapStringToModAction(String action, boolean isComment) {
         return switch (action.toLowerCase()) {
-            case "remove" -> ModAction.REMOVE_POST;
-            case "approve" -> ModAction.APPROVE_POST;
+            case "remove" -> isComment ? ModAction.REMOVE_COMMENT : ModAction.REMOVE_POST;
+            case "approve" -> isComment ? ModAction.APPROVE_COMMENT : ModAction.APPROVE_POST;
             case "lock" -> ModAction.LOCK_POST;
             case "unlock" -> ModAction.UNLOCK_POST;
             case "pin" -> ModAction.PIN_POST;

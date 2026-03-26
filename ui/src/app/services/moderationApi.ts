@@ -7,6 +7,7 @@ export interface ModQueueItem {
   status: string;
   flagReason: string;
   reportCount: number;
+  reportReasonsList?: string[];
   contentTitle: string;
   contentBody: string;
   author: string;

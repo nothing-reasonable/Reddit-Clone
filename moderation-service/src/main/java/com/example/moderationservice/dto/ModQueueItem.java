@@ -14,6 +14,7 @@ public class ModQueueItem {
     private String flagReason;
     private int reportCount;
     private List<ReportDto> reports;
+    private List<String> reportReasonsList;
     
     // Additional helpful field for UI to display the flagged content
     private String contentTitle;

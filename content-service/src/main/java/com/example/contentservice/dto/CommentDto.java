@@ -25,4 +25,5 @@ public class CommentDto {
     private boolean removed;
     private boolean flagged;
     private int reports;
+    private String reportReasons;
 }
