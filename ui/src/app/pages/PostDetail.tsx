@@ -9,7 +9,7 @@ import { useSubreddit } from '../contexts/SubredditContext';
 import { toast } from 'sonner';
 import { deletePost, getPostById, votePost } from '../services/contentApi';
 import { getSubredditByName } from '../services/subredditApi';
-import { lockPost, unlockPost, pinPost, unpinPost, removePost, restorePost } from '../services/moderationApi';
+import { lockPost, unlockPost, pinPost, unpinPost, removePost, restorePost, removeComment } from '../services/moderationApi';
 import type { Post } from '../types/domain';
 import CommentComponent, { CommentNode } from '../components/CommentComponent';
 import { getComments, createComment, deleteComment } from '../services/commentApi';
@@ -226,7 +226,12 @@ export default function PostDetail() {
   const handleDeleteComment = async (commentId: string) => {
     if (!token || !postId) return;
     try {
-      await deleteComment(token, postId, commentId);
+      if (isModerator && subreddit) {
+        // Moderator path: use moderation-service so authorization and mod log entries are handled server-side.
+        await removeComment(token, subreddit, postId, commentId);
+      } else {
+        await deleteComment(token, postId, commentId);
+      }
 
       const markDeleted = (nodes: CommentNode[]): CommentNode[] => {
         return nodes.map((node) => {

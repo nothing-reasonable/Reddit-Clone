@@ -363,3 +363,14 @@ export const pinPost     = (token: string, subreddit: string, postId: string) =>
 export const unpinPost   = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'unpin');
 export const removePost  = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'remove');
 export const restorePost = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'approve');
+
+async function commentModAction(token: string, subreddit: string, postId: string, commentId: string, action: string): Promise<void> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/mod-actions/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}/${action}`,
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) throw new Error(`Comment mod action '${action}' failed (${response.status})`);
+}
+
+export const removeComment  = (token: string, subreddit: string, postId: string, commentId: string) => commentModAction(token, subreddit, postId, commentId, 'remove');
+export const approveComment = (token: string, subreddit: string, postId: string, commentId: string) => commentModAction(token, subreddit, postId, commentId, 'approve');
