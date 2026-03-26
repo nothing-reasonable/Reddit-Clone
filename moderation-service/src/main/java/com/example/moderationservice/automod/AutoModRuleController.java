@@ -54,13 +54,17 @@ public class AutoModRuleController {
     }
 
     @PatchMapping("/rules/{ruleId}")
-    public ResponseEntity<Void> toggleRule(
+    public ResponseEntity<AutoModRule> toggleRule(
             @PathVariable String subreddit,
             @PathVariable String ruleId,
             @RequestBody Map<String, Boolean> body,
             @AuthenticationPrincipal String username) {
-        service.toggleRule(subreddit, ruleId, body.get("enabled"), username);
-        return ResponseEntity.ok().build();
+        Boolean enabled = body.get("enabled");
+        if (enabled == null) {
+            throw new IllegalArgumentException("'enabled' field is required in request body");
+        }
+        AutoModRule rule = service.toggleRule(subreddit, ruleId, enabled, username);
+        return ResponseEntity.ok(rule);
     }
 
     @DeleteMapping("/rules/{ruleId}")

@@ -113,6 +113,27 @@ export default function PostDetail() {
     };
   }, [postId, subreddit, user?.username]);
 
+  // Auto-refresh post to pick up mod actions (approval, removal, etc)
+  useEffect(() => {
+    if (!postId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const updatedPost = await getPostById(postId);
+        setPost(updatedPost);
+        if (updatedPost) {
+          setIsLocked(updatedPost.locked ?? false);
+          setIsPinned(updatedPost.pinned ?? false);
+          setIsRemoved(updatedPost.removed ?? false);
+        }
+      } catch {
+        // Silently fail on refresh errors
+      }
+    }, 5000); // Refresh every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [postId]);
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
     backendModerators.some((moderator) => moderator === (user?.username || ''));

@@ -36,11 +36,11 @@ public class ContentService {
     private final ModerationService moderationService;
 
     public Page<Post> getGlobalPosts(Pageable pageable) {
-        return postRepository.findByRemovedFalse(pageable);
+        return postRepository.findByRemovedFalseExcludingAutoModFlaggedOnly(pageable);
     }
 
     public Page<Post> getSubredditPosts(String subreddit, Pageable pageable) {
-        return postRepository.findBySubredditAndRemovedFalse(subreddit, pageable);
+        return postRepository.findBySubredditAndRemovedFalseExcludingAutoModFlaggedOnly(subreddit, pageable);
     }
 
     @Transactional
@@ -199,6 +199,7 @@ public class ContentService {
         post.setTitle("[deleted]");
         post.setContent("[deleted]");
         post.setAuthor("[deleted]");
+        post.setDeleted(true);
         return postRepository.save(post);
     }
 

@@ -82,7 +82,7 @@ public class AutoModRuleService {
         return saved;
     }
 
-    public void toggleRule(String subredditName, String ruleId,
+    public AutoModRule toggleRule(String subredditName, String ruleId,
                            boolean enabled, String username) {
         moderatorAuthService.requireModerator(subredditName, username);
         AutoModRule rule = getRuleOrThrow(subredditName, ruleId);
@@ -95,6 +95,7 @@ public class AutoModRuleService {
             "beforeEnabled", previous,
             "afterEnabled", saved.isEnabled()
         ));
+        return saved;
     }
 
     public void deleteRule(String subredditName, String ruleId, String username) {

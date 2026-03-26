@@ -80,6 +80,10 @@ public class Post {
     private boolean removed = false;
     
     @Builder.Default
+    @Column(nullable = false, columnDefinition = "boolean default false")
+    private boolean deleted = false;
+    
+    @Builder.Default
     private boolean locked = false;
     
     @Builder.Default

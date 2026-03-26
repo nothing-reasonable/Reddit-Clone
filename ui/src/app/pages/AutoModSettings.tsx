@@ -342,6 +342,7 @@ export default function AutoModSettings() {
 
   const [rules, setRules] = useState<RichAutoModRule[]>(() => createSeedRules(subreddit || ''));
   const [rulesLoading, setRulesLoading] = useState(false);
+  const [togglingRuleId, setTogglingRuleId] = useState<string | null>(null);
 
   // Load rules from backend on mount
   useEffect(() => {
@@ -492,14 +493,27 @@ export default function AutoModSettings() {
 
   const toggleRule = (id: string) => {
     const rule = rules.find((r) => r.id === id);
-    if (!rule || !token) return;
+    if (!rule || !token || togglingRuleId) return; // Prevent multiple simultaneous toggles
     const newEnabled = !rule.enabled;
+    setTogglingRuleId(id);
     toggleAutoModRule(token, subreddit!, id, newEnabled)
-      .then(() => {
-        setRules(rules.map((r) => r.id === id ? { ...r, enabled: newEnabled, lastEditedBy: user!.username, lastEditedAt: new Date() } : r));
-        toast.success(newEnabled ? 'Rule enabled' : 'Rule disabled');
+      .then((updatedRule) => {
+        // Use the returned rule from server for accurate state
+        setRules(rules.map((r) => r.id === id ? { 
+          ...r, 
+          ...updatedRule,
+          lastEditedAt: new Date(updatedRule.lastEditedAt || new Date())
+        } : r));
+        toast.success(updatedRule.enabled ? 'Rule enabled' : 'Rule disabled');
       })
-      .catch(() => toast.error('Failed to toggle rule'));
+      .catch((error) => {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to toggle rule';
+        toast.error(errorMessage);
+        console.error('Toggle rule error:', errorMessage);
+      })
+      .finally(() => {
+        setTogglingRuleId(null);
+      });
   };
 
   const deleteRule = (id: string) => {
@@ -849,10 +863,21 @@ export default function AutoModSettings() {
                       {/* Toggle */}
                       <button
                         onClick={(e) => { e.stopPropagation(); toggleRule(rule.id); }}
-                        className={`w-9 h-5 rounded-full relative transition-colors shrink-0 ${rule.enabled ? 'bg-green-500' : 'bg-gray-300'}`}
-                        title={rule.enabled ? 'Disable' : 'Enable'}
+                        disabled={togglingRuleId === rule.id}
+                        className={`w-9 h-5 rounded-full relative transition-colors shrink-0 flex items-center justify-center ${
+                          togglingRuleId === rule.id
+                            ? 'bg-gray-400 cursor-not-allowed'
+                            : rule.enabled
+                            ? 'bg-green-500 hover:bg-green-600'
+                            : 'bg-gray-300 hover:bg-gray-400'
+                        }`}
+                        title={togglingRuleId === rule.id ? 'Updating...' : rule.enabled ? 'Disable' : 'Enable'}
                       >
-                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${rule.enabled ? 'left-[18px]' : 'left-0.5'}`} />
+                        {togglingRuleId === rule.id ? (
+                          <Loader2 className="w-3 h-3 text-white animate-spin" />
+                        ) : (
+                          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${rule.enabled ? 'left-[18px]' : 'left-0.5'}`} />
+                        )}
                       </button>
 
                       <div className="flex-1 min-w-0">

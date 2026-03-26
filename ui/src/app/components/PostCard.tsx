@@ -44,7 +44,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
   const [hasReported, setHasReported] = useState(wasReportedByUser);
   const [userVote, setUserVote] = useState<-1 | 0 | 1>(0);
   const [score, setScore] = useState(post.upvotes - post.downvotes);
-  const [isDeleted, setIsDeleted] = useState(post.author === '[deleted]');
+  const [isDeleted, setIsDeleted] = useState(post.deleted ?? false);
   const [isVoting, setIsVoting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showCreatorMenu, setShowCreatorMenu] = useState(false);
@@ -55,7 +55,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
   const [reportReason, setReportReason] = useState('');
   useEffect(() => {
     setScore(post.upvotes - post.downvotes);
-    setIsDeleted(post.author === '[deleted]');
+    setIsDeleted(post.deleted ?? false);
     setUserVote(user?.username === post.author ? 1 : 0);
   }, [post, user?.username]);
 

@@ -289,7 +289,7 @@ export async function updateAutoModRule(
   return response.json() as Promise<AutoModRuleDto>;
 }
 
-export async function toggleAutoModRule(token: string, subreddit: string, ruleId: string, enabled: boolean): Promise<void> {
+export async function toggleAutoModRule(token: string, subreddit: string, ruleId: string, enabled: boolean): Promise<AutoModRuleDto> {
   const response = await fetch(
     `${MODERATION_SERVICE_URL}/api/v1/r/${encodeURIComponent(subreddit)}/automod/rules/${ruleId}`,
     {
@@ -298,7 +298,11 @@ export async function toggleAutoModRule(token: string, subreddit: string, ruleId
       body: JSON.stringify({ enabled }),
     }
   );
-  if (!response.ok) throw new Error(`Failed to toggle AutoMod rule (${response.status})`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+    throw new Error(error.error || `Failed to toggle AutoMod rule (${response.status})`);
+  }
+  return response.json() as Promise<AutoModRuleDto>;
 }
 
 export async function deleteAutoModRule(token: string, subreddit: string, ruleId: string): Promise<void> {

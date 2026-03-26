@@ -19,6 +19,7 @@ export interface Post {
   flagged?: boolean;
   flagReason?: string;
   removed?: boolean;
+  deleted?: boolean;
   locked?: boolean;
   pinned?: boolean;
   awards?: Award[];
