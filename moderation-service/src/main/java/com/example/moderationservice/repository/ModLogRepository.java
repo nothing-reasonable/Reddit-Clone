@@ -27,6 +27,22 @@ public interface ModLogRepository extends JpaRepository<ModLog, String> {
             Pageable pageable);
 
     /**
+     * Find mod logs for a subreddit with optional filtering, using cursor-based pagination.
+     * Only returns entries with timestamp before the cursor timestamp.
+     */
+    @Query("SELECT m FROM ModLog m WHERE m.subreddit = :subreddit " +
+           "AND (:action IS NULL OR m.action = :action) " +
+           "AND (:moderator IS NULL OR m.moderator = :moderator) " +
+           "AND m.timestamp < :cursorTimestamp " +
+           "ORDER BY m.timestamp DESC")
+    Page<ModLog> findBySubredditWithFiltersAfterCursor(
+            @Param("subreddit") String subreddit,
+            @Param("action") ModAction action,
+            @Param("moderator") String moderator,
+            @Param("cursorTimestamp") java.time.LocalDateTime cursorTimestamp,
+            Pageable pageable);
+
+    /**
      * Find mod logs for a subreddit ordered by most recent first.
      */
     Page<ModLog> findBySubredditOrderByTimestampDesc(String subreddit, Pageable pageable);

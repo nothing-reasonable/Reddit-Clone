@@ -67,13 +67,22 @@ public class ModLogService {
             }
         }
 
-        // Query the database
+        // Query the database, using cursor if provided
         log.info("Querying modlog for subreddit={}, action={}, moderator={}", subreddit, action, moderatorFilter);
-        Page<ModLog> page = modLogRepository.findBySubredditWithFilters(
-                subreddit,
-                action,
-                moderatorFilter,
-                pageable);
+        Page<ModLog> page;
+        if (after != null && !after.isEmpty()) {
+            ModLog cursorEntry = modLogRepository.findById(after).orElse(null);
+            if (cursorEntry != null) {
+                page = modLogRepository.findBySubredditWithFiltersAfterCursor(
+                        subreddit, action, moderatorFilter, cursorEntry.getTimestamp(), pageable);
+            } else {
+                page = modLogRepository.findBySubredditWithFilters(
+                        subreddit, action, moderatorFilter, pageable);
+            }
+        } else {
+            page = modLogRepository.findBySubredditWithFilters(
+                    subreddit, action, moderatorFilter, pageable);
+        }
 
         log.info("Query returned {} results", page.getTotalElements());
 
