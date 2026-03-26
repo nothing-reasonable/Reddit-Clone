@@ -58,16 +58,15 @@ public class SubredditController {
     @PutMapping("/{name}")
     public ResponseEntity<SubredditDto> updateSubreddit(
             @PathVariable String name,
-            @Valid @RequestBody UpdateSubredditRequest request
+            @Valid @RequestBody UpdateSubredditRequest request,
+            Authentication authentication
     ) {
-        // Note: For a simpler implementation, we assume authentication is enough for access control here
-        // A complete implementation would verify the authenticated user is a MODERATOR of this subreddit.
-        return ResponseEntity.ok(subredditService.updateSubreddit(name, request));
+        return ResponseEntity.ok(subredditService.updateSubreddit(name, request, authentication.getName()));
     }
 
     @DeleteMapping("/{name}")
-    public ResponseEntity<Void> deleteSubreddit(@PathVariable String name) {
-        subredditService.deleteSubreddit(name);
+    public ResponseEntity<Void> deleteSubreddit(@PathVariable String name, Authentication authentication) {
+        subredditService.deleteSubreddit(name, authentication.getName());
         return ResponseEntity.noContent().build();
     }
 

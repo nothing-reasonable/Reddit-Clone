@@ -101,9 +101,15 @@ public class SubredditServiceImpl implements SubredditService {
 
     @Override
     @Transactional
-    public SubredditDto updateSubreddit(String name, UpdateSubredditRequest request) {
+    public SubredditDto updateSubreddit(String name, UpdateSubredditRequest request, String username) {
         Subreddit subreddit = subredditRepository.findByName(name)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + name));
+
+        SubredditMember member = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username)
+                .orElseThrow(() -> new IllegalStateException("Not a member of r/" + name));
+        if (member.getRole() != MemberRole.MODERATOR) {
+            throw new IllegalStateException("You are not a moderator of r/" + name);
+        }
 
         if (request.getDescription() != null) {
             subreddit.setDescription(request.getDescription());
@@ -125,9 +131,16 @@ public class SubredditServiceImpl implements SubredditService {
 
     @Override
     @Transactional
-    public void deleteSubreddit(String name) {
+    public void deleteSubreddit(String name, String username) {
         Subreddit subreddit = subredditRepository.findByName(name)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + name));
+
+        SubredditMember member = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username)
+                .orElseThrow(() -> new IllegalStateException("Not a member of r/" + name));
+        if (member.getRole() != MemberRole.MODERATOR) {
+            throw new IllegalStateException("You are not a moderator of r/" + name);
+        }
+
         subredditRepository.delete(subreddit);
     }
 

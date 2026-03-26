@@ -18,8 +18,8 @@ public interface SubredditService {
     SubredditDto getSubredditById(Long id);
     List<SubredditDto> getAllSubreddits();
     List<SubredditDto> searchSubreddits(String query);
-    SubredditDto updateSubreddit(String name, UpdateSubredditRequest request);
-    void deleteSubreddit(String name);
+    SubredditDto updateSubreddit(String name, UpdateSubredditRequest request, String username);
+    void deleteSubreddit(String name, String username);
 
     // Membership
     SubredditMemberDto joinSubreddit(String subredditName, String username);
