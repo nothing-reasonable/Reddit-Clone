@@ -276,10 +276,6 @@ public class CommentService {
                 .editedAt(comment.getEditedAt())
                 .removed(comment.isRemoved())
                 .flagged(comment.isFlagged())
-<<<<<<< HEAD
-                .build();
-    }
-=======
                 .reports(comment.getReports())
                 .reportReasons(comment.getReportReasons())
                 .build();
@@ -319,5 +315,4 @@ public class CommentService {
 
         return comment;
     }
->>>>>>> origin/main
 }

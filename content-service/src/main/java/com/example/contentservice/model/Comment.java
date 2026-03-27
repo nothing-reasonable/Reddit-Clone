@@ -26,12 +26,10 @@ public class Comment {
     
     @Column(name = "post_id", nullable = false)
     private String postId;
-<<<<<<< HEAD
-=======
 
     @Column(nullable = false)
     private String subreddit;
->>>>>>> origin/main
+
     
     @Column(name = "parent_id")
     private String parentId; // null for top-level comments
@@ -69,4 +67,12 @@ public class Comment {
     @Builder.Default
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean flagged = false;
+
+    @Builder.Default
+    @Column(nullable = false, columnDefinition = "integer default 0")
+    private int reports = 0;
+
+    @Column(columnDefinition = "TEXT")
+    private String reportReasons;
 }
+

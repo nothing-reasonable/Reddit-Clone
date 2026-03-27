@@ -24,9 +24,6 @@ public class CommentDto {
     private LocalDateTime editedAt;
     private boolean removed;
     private boolean flagged;
-<<<<<<< HEAD
-=======
     private int reports;
     private String reportReasons;
->>>>>>> origin/main
 }
