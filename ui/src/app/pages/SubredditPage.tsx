@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 import { formatDistanceToNow } from 'date-fns';
 import {
   getSubredditByName,
+  heartbeatSubredditPresence,
+  leaveSubredditPresence,
   joinSubredditMembership,
   leaveSubredditMembership,
   resignModeratorRole,
@@ -81,6 +83,43 @@ export default function SubredditPage() {
   }, [subreddit]);
 
   useEffect(() => {
+    if (!subreddit || !isAuthenticated || !token) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const sendHeartbeat = async () => {
+      try {
+        const onlineCount = await heartbeatSubredditPresence(token, subreddit);
+        if (cancelled) return;
+
+        setSubredditData((current) => {
+          if (!current) return current;
+          return { ...current, online: onlineCount };
+        });
+      } catch {
+        // Keep the current UI value if heartbeat fails.
+      }
+    };
+
+    void sendHeartbeat();
+    const interval = window.setInterval(() => {
+      void sendHeartbeat();
+    }, 30000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+
+      // Best-effort removal on page exit/navigation.
+      void leaveSubredditPresence(token, subreddit).catch(() => {
+        // Ignore cleanup failures.
+      });
+    };
+  }, [subreddit, isAuthenticated, token]);
+
+  useEffect(() => {
     let cancelled = false;
 
     async function loadPosts() {
@@ -140,6 +179,13 @@ export default function SubredditPage() {
       }
 
       if (joined) {
+        try {
+          const onlineCount = await leaveSubredditPresence(token, subreddit);
+          setSubredditData((current) => (current ? { ...current, online: onlineCount } : current));
+        } catch {
+          // Membership action should proceed even if presence cleanup fails.
+        }
+
         await leaveSubredditMembership(token, subreddit);
         leaveSubreddit(subreddit);
         toast.success(`Left r/${subreddit}`);

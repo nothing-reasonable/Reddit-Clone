@@ -1,4 +1,4 @@
-import { useParams, Link } from 'react-router';
+import { useParams, Link, useNavigate } from 'react-router';
 import React, { useEffect, useState } from 'react';
 import { ArrowUp, ArrowDown, Share2, Bookmark, BookmarkCheck, Award, MoreHorizontal, Flag, Lock, Trash2, Pin } from 'lucide-react';
 import { formatNumber } from '../utils/format';
@@ -7,24 +7,30 @@ import { formatDistanceToNow } from 'date-fns';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { toast } from 'sonner';
-import { getPostById } from '../services/contentApi';
+import { deletePost, getPostById, votePost } from '../services/contentApi';
 import { getSubredditByName } from '../services/subredditApi';
+
+import { lockPost, unlockPost, pinPost, unpinPost, removePost, restorePost, removeComment } from '../services/moderationApi';
+
 import type { Post } from '../types/domain';
 import CommentComponent, { CommentNode } from '../components/CommentComponent';
 import { getComments, createComment, deleteComment } from '../services/commentApi';
 
 export default function PostDetail() {
   const { postId, subreddit } = useParams<{ postId: string; subreddit: string }>();
+  const navigate = useNavigate();
   const { user, token, isAuthenticated } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const [post, setPost] = useState<Post | null>(null);
   const [comments, setComments] = useState<CommentNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [backendModerators, setBackendModerators] = useState<string[]>([]);
-  const [vote, setVote] = useState<'up' | 'down' | null>(null);
+  const [userVote, setUserVote] = useState<-1 | 0 | 1>(0);
+  const [score, setScore] = useState(0);
   const [commentText, setCommentText] = useState('');
   const [saved, setSaved] = useState(false);
   const [showModMenu, setShowModMenu] = useState(false);
+  const [showCreatorMenu, setShowCreatorMenu] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
   const [isRemoved, setIsRemoved] = useState(false);
@@ -40,25 +46,49 @@ export default function PostDetail() {
       setLoading(true);
 
       try {
-        const [loadedPost, loadedSubreddit, loadedComments] = await Promise.all([
+        const [loadedPost, loadedComments] = await Promise.all([
           getPostById(postId),
-          subreddit ? getSubredditByName(subreddit) : Promise.resolve(null),
           getComments(postId),
         ]);
 
         if (cancelled) return;
         setPost(loadedPost);
-        setBackendModerators(loadedSubreddit?.moderators ?? []);
-        
+
+
+        if (subreddit) {
+          try {
+            const loadedSubreddit = await getSubredditByName(subreddit);
+            if (!cancelled) {
+              setBackendModerators(loadedSubreddit?.moderators ?? []);
+            }
+          } catch {
+            if (!cancelled) {
+              // Do not block post rendering when subreddit metadata is temporarily unavailable.
+              setBackendModerators([]);
+            }
+          }
+        } else {
+          setBackendModerators([]);
+        }
+
+        if (loadedPost) {
+          setIsLocked(loadedPost.locked ?? false);
+          setIsPinned(loadedPost.pinned ?? false);
+          setIsRemoved(loadedPost.removed ?? false);
+          setScore(loadedPost.upvotes - loadedPost.downvotes);
+          setUserVote(user?.username === loadedPost.author ? 1 : 0);
+        }
+
+
         const buildTree = (flat: any[]): CommentNode[] => {
           const map = new Map<string, CommentNode>();
           const roots: CommentNode[] = [];
-          
-          flat.forEach(c => {
+
+          flat.forEach((c) => {
             map.set(c.id, { ...c, replies: [] });
           });
-          
-          flat.forEach(c => {
+
+          flat.forEach((c) => {
             if (c.parentId && map.has(c.parentId)) {
               map.get(c.parentId)!.replies.push(map.get(c.id)!);
             } else {
@@ -67,7 +97,7 @@ export default function PostDetail() {
           });
           return roots;
         };
-        
+
         setComments(buildTree(loadedComments));
       } catch {
         if (!cancelled) {
@@ -85,7 +115,28 @@ export default function PostDetail() {
     return () => {
       cancelled = true;
     };
-  }, [postId, subreddit]);
+  }, [postId, subreddit, user?.username]);
+
+  // Auto-refresh post to pick up mod actions (approval, removal, etc)
+  useEffect(() => {
+    if (!postId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const updatedPost = await getPostById(postId);
+        setPost(updatedPost);
+        if (updatedPost) {
+          setIsLocked(updatedPost.locked ?? false);
+          setIsPinned(updatedPost.pinned ?? false);
+          setIsRemoved(updatedPost.removed ?? false);
+        }
+      } catch {
+        // Silently fail on refresh errors
+      }
+    }, 5000); // Refresh every 5 seconds
+
+    return () => clearInterval(interval);
+  }, [postId]);
 
   const isModerator =
     isSubredditModerator(subreddit || '') ||
@@ -112,15 +163,35 @@ export default function PostDetail() {
     );
   }
 
-  const score = post.upvotes - post.downvotes + (vote === 'up' ? 1 : vote === 'down' ? -1 : 0);
+  const canDeletePost = !!user && user.username === post.author && post.author !== '[deleted]';
 
-  const handleVote = (type: 'up' | 'down') => {
-    setVote(vote === type ? null : type);
+  const handleVote = async (type: 'up' | 'down') => {
+    if (!token || !postId) {
+      toast.error('Please log in to vote');
+      return;
+    }
+
+    const intendedDirection: -1 | 1 = type === 'up' ? 1 : -1;
+    const nextDirection: -1 | 0 | 1 = userVote === intendedDirection ? 0 : intendedDirection;
+
+    try {
+      const newScore = await votePost(token, postId, nextDirection);
+      setScore(newScore);
+      setUserVote(nextDirection);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to vote');
+    }
   };
 
   const handleComment = async () => {
-    if (!isAuthenticated || !user) { toast.error('Please log in to comment'); return; }
-    if (isLocked) { toast.error('This post is locked'); return; }
+    if (!isAuthenticated || !user) {
+      toast.error('Please log in to comment');
+      return;
+    }
+    if (isLocked) {
+      toast.error('This post is locked');
+      return;
+    }
     if (!commentText.trim() || !postId) return;
     try {
       const newComment = await createComment(token || '', postId, commentText);
@@ -136,9 +207,9 @@ export default function PostDetail() {
     if (!user || !postId) return;
     try {
       const newComment = await createComment(token || '', postId, replyContent, parentId);
-      
+
       const insertReply = (nodes: CommentNode[]): CommentNode[] => {
-        return nodes.map(node => {
+        return nodes.map((node) => {
           if (node.id === parentId) {
             return { ...node, replies: [...node.replies, { ...newComment, replies: [] } as unknown as CommentNode] };
           }
@@ -148,21 +219,26 @@ export default function PostDetail() {
           return node;
         });
       };
-      
+
       setComments(insertReply(comments));
       toast.success('Reply posted!');
-    } catch(e: any) {
+    } catch (e: any) {
       toast.error(e.message || 'Failed to post reply');
     }
   };
 
   const handleDeleteComment = async (commentId: string) => {
-    if (!user || !postId) return;
+    if (!token || !postId) return;
     try {
-      await deleteComment(user.token, postId, commentId);
-      
+      if (isModerator && subreddit) {
+        // Moderator path: use moderation-service so authorization and mod log entries are handled server-side.
+        await removeComment(token, subreddit, postId, commentId);
+      } else {
+        await deleteComment(token, postId, commentId);
+      }
+
       const markDeleted = (nodes: CommentNode[]): CommentNode[] => {
-        return nodes.map(node => {
+        return nodes.map((node) => {
           if (node.id === commentId) {
             return { ...node, removed: true, content: '[deleted]', author: '[deleted]' };
           }
@@ -172,7 +248,7 @@ export default function PostDetail() {
           return node;
         });
       };
-      
+
       setComments(markDeleted(comments));
       toast.success('Comment deleted');
     } catch (e: any) {
@@ -185,35 +261,67 @@ export default function PostDetail() {
     toast.success('Link copied to clipboard!');
   };
 
+  const handleDeletePost = async () => {
+    if (!token || !postId || !subreddit || !canDeletePost) return;
+    if (!window.confirm('Delete this post?')) return;
+
+    try {
+      await deletePost(token, postId);
+      toast.success('Post deleted');
+      navigate(`/r/${subreddit}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete post');
+    } finally {
+      setShowCreatorMenu(false);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto p-4">
-      {/* Post Card */}
       <div className={`bg-white border border-gray-300 rounded mb-3 ${isRemoved ? 'opacity-50' : ''}`}>
         <div className="flex">
-          {/* Vote Section */}
           <div className="flex flex-col items-center bg-gray-50 px-3 py-4 rounded-l gap-0.5">
             <button
               onClick={() => handleVote('up')}
-              className={`p-1 rounded hover:bg-orange-100 transition-colors ${vote === 'up' ? 'text-orange-500' : 'text-gray-400'
-                }`}
+              className={`p-1 rounded hover:bg-orange-100 transition-colors ${userVote === 1 ? 'text-orange-500' : 'text-gray-400'}`}
             >
-              <ArrowUp className="w-6 h-6" fill={vote === 'up' ? 'currentColor' : 'none'} />
+              <ArrowUp className="w-6 h-6" fill={userVote === 1 ? 'currentColor' : 'none'} />
             </button>
-            <span className={`text-sm font-bold ${vote === 'up' ? 'text-orange-500' : vote === 'down' ? 'text-blue-500' : 'text-gray-900'}`}>
+            <span className={`text-sm font-bold ${userVote === 1 ? 'text-orange-500' : userVote === -1 ? 'text-blue-500' : 'text-gray-900'}`}>
               {formatNumber(score)}
             </span>
             <button
               onClick={() => handleVote('down')}
-              className={`p-1 rounded hover:bg-blue-100 transition-colors ${vote === 'down' ? 'text-blue-500' : 'text-gray-400'
-                }`}
+              className={`p-1 rounded hover:bg-blue-100 transition-colors ${userVote === -1 ? 'text-blue-500' : 'text-gray-400'}`}
             >
-              <ArrowDown className="w-6 h-6" fill={vote === 'down' ? 'currentColor' : 'none'} />
+              <ArrowDown className="w-6 h-6" fill={userVote === -1 ? 'currentColor' : 'none'} />
             </button>
           </div>
 
-          {/* Content Section */}
-          <div className="flex-1 p-4 min-w-0">
-            {/* Meta */}
+          <div className="flex-1 p-4 min-w-0 relative">
+            {canDeletePost && (
+              <div className="absolute top-2 right-2 z-10">
+                <button
+                  onClick={() => setShowCreatorMenu((prev) => !prev)}
+                  className="p-1.5 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                  aria-label="Post actions"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+                {showCreatorMenu && (
+                  <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1">
+                    <button
+                      onClick={handleDeletePost}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 w-full text-left text-sm"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                      Delete Post
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center gap-1.5 text-xs text-gray-500 mb-2 flex-wrap">
               <Link to={`/r/${post.subreddit}`} className="font-bold text-gray-900 hover:underline">
                 r/{post.subreddit}
@@ -236,7 +344,6 @@ export default function PostDetail() {
 
             <h1 className="text-xl font-bold mb-2">{post.title}</h1>
 
-            {/* Flair + Awards */}
             <div className="flex items-center gap-2 mb-3 flex-wrap">
               {post.flair && (
                 <span className="inline-block px-2.5 py-0.5 bg-gray-200 text-xs rounded-full font-medium">
@@ -257,7 +364,6 @@ export default function PostDetail() {
 
             <div className="text-sm text-gray-800 mb-4 whitespace-pre-line leading-relaxed">{post.content}</div>
 
-            {/* Action Buttons */}
             <div className="flex items-center gap-1 -ml-1.5 flex-wrap">
               <button
                 onClick={handleShare}
@@ -267,7 +373,10 @@ export default function PostDetail() {
                 Share
               </button>
               <button
-                onClick={() => { setSaved(!saved); toast.success(saved ? 'Unsaved' : 'Saved!'); }}
+                onClick={() => {
+                  setSaved(!saved);
+                  toast.success(saved ? 'Unsaved' : 'Saved!');
+                }}
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-gray-100 rounded text-xs font-semibold ${saved ? 'text-yellow-600' : 'text-gray-500'}`}
               >
                 {saved ? <BookmarkCheck className="w-4 h-4" /> : <Bookmark className="w-4 h-4" />}
@@ -281,7 +390,6 @@ export default function PostDetail() {
                 Award
               </button>
 
-              {/* Mod Actions */}
               {isModerator && (
                 <div className="relative ml-auto">
                   <button
@@ -345,7 +453,6 @@ export default function PostDetail() {
         </div>
       </div>
 
-      {/* Locked Notice */}
       {isLocked && (
         <div className="bg-yellow-50 border border-yellow-200 rounded p-3 mb-3 flex items-center gap-2 text-sm text-yellow-800">
           <Lock className="w-4 h-4" />
@@ -353,14 +460,10 @@ export default function PostDetail() {
         </div>
       )}
 
-      {/* Comment Box */}
       {!isLocked && (
         <div className="bg-white border border-gray-300 rounded p-4 mb-3">
           <p className="text-xs text-gray-500 mb-2">
-            Comment as{' '}
-            <span className="text-blue-500 font-medium">
-              {isAuthenticated ? `u/${user?.username}` : 'Guest'}
-            </span>
+            Comment as <span className="text-blue-500 font-medium">{isAuthenticated ? `u/${user?.username}` : 'Guest'}</span>
           </p>
           <textarea
             value={commentText}
@@ -381,12 +484,9 @@ export default function PostDetail() {
         </div>
       )}
 
-      {/* Comments Section */}
       <div className="bg-white border border-gray-300 rounded p-4">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-bold text-sm">
-            Comments ({post.commentCount || 0})
-          </h2>
+          <h2 className="font-bold text-sm">Comments ({post.commentCount || 0})</h2>
           <select className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none">
             <option>Best</option>
             <option>Top</option>
@@ -398,13 +498,7 @@ export default function PostDetail() {
             <p className="text-gray-500 text-center py-8 text-sm">No comments yet. Be the first to share your thoughts!</p>
           ) : (
             comments.map((node: CommentNode) => (
-              <CommentComponent 
-                key={node.id} 
-                node={node} 
-                onReply={handleReply} 
-                onDelete={handleDeleteComment} 
-                isModerator={isModerator} 
-              />
+              <CommentComponent key={node.id} node={node} onReply={handleReply} onDelete={handleDeleteComment} isModerator={isModerator} />
             ))
           )}
         </div>

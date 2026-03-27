@@ -8,11 +8,13 @@ import java.util.List;
 @Builder
 public class ModQueueItem {
     private String id;
+    private String postId; // For comments, this is the parent post ID
     private String type; // post, comment, user
     private String status; // pending, approved, removed
     private String flagReason;
     private int reportCount;
     private List<ReportDto> reports;
+    private List<String> reportReasonsList;
     
     // Additional helpful field for UI to display the flagged content
     private String contentTitle;

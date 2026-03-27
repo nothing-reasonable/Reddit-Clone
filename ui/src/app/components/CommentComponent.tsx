@@ -1,9 +1,11 @@
-import { ArrowUp, ArrowDown, MessageSquare, Flag, Trash2, Shield } from 'lucide-react';
-import type { Post } from '../types/domain';
+import { ArrowUp, ArrowDown, MessageSquare, Flag, Trash2, MoreHorizontal } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+
+import { reportComment, voteComment } from '../services/commentApi';
+import { useAuth } from '../contexts/AuthContext';
 
 export type CommentNode = {
   id: string;
@@ -17,6 +19,8 @@ export type CommentNode = {
   removed: boolean;
   flagged: boolean;
   replies: CommentNode[];
+  reportReasons?: string[];
+  reports?: number;
 };
 
 interface CommentComponentProps {
@@ -27,18 +31,48 @@ interface CommentComponentProps {
   isModerator?: boolean;
 }
 
-export default function CommentComponent({ node, onReply, onDelete, isModerator }: CommentComponentProps) {
-  const [vote, setVote] = useState<'up' | 'down' | null>(null);
+export default function CommentComponent({ node, onReply, onDelete, isModerator: _isModerator }: CommentComponentProps) {
+  const { user, token } = useAuth();
+  const [userVote, setUserVote] = useState<-1 | 0 | 1>(user?.username === node.author ? 1 : 0);
+  const [score, setScore] = useState(node.upvotes - node.downvotes);
+  const [isVoting, setIsVoting] = useState(false);
   const [showReplyBox, setShowReplyBox] = useState(false);
   const [replyText, setReplyText] = useState('');
   const [collapsed, setCollapsed] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
 
-  const score = node.upvotes - node.downvotes + (vote === 'up' ? 1 : vote === 'down' ? -1 : 0);
+  const [isReporting, setIsReporting] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportReason, setReportReason] = useState('');
+  const [showCommentMenu, setShowCommentMenu] = useState(false);
+  const reportedCommentsKey = user ? `reportedComments_${user.username}` : null;
+  const wasReportedByUser = reportedCommentsKey
+    ? (JSON.parse(localStorage.getItem(reportedCommentsKey) ?? '[]') as string[]).includes(node.id)
+    : false;
+  const [hasReported, setHasReported] = useState(wasReportedByUser);
 
-  const handleVote = (type: 'up' | 'down') => {
-    setVote(vote === type ? null : type);
+  const canDeleteComment = !!user && user.username === node.author;
+
+  const handleVote = async (type: 'up' | 'down') => {
+    if (!token) {
+      toast.error('Please log in to vote');
+      return;
+    }
+
+    const intendedDirection: -1 | 1 = type === 'up' ? 1 : -1;
+    const nextDirection: -1 | 0 | 1 = userVote === intendedDirection ? 0 : intendedDirection;
+
+    setIsVoting(true);
+    try {
+      const newScore = await voteComment(token, node.postId, node.id, nextDirection);
+      setScore(newScore);
+      setUserVote(nextDirection);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to vote on comment');
+    } finally {
+      setIsVoting(false);
+    }
   };
 
   const submitReply = async () => {
@@ -64,6 +98,57 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
     }
   };
 
+
+  const handleReport = () => {
+    setShowReportModal(true);
+  };
+
+  const getReportReasonsDisplay = (): string => {
+    if (node.reportReasons) {
+      try {
+        const reasons = JSON.parse(node.reportReasons) as string[];
+        if (Array.isArray(reasons) && reasons.length > 0) {
+          // Count frequency of each reason and sort descending
+          const freq: Record<string, number> = {};
+          for (const r of reasons) {
+            freq[r] = (freq[r] || 0) + 1;
+          }
+          const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+          return sorted.map(([reason, count]) => count > 1 ? `${reason} (${count})` : reason).join(', ');
+        }
+      } catch {
+        return 'User reported';
+      }
+    }
+    if (node.reports && node.reports > 0) {
+      return 'User reported';
+    }
+    return 'Flagged by AutoMod';
+  };
+
+  const handleReportSubmit = async () => {
+    if (!reportReason) {
+      toast.error('Please select a reason');
+      return;
+    }
+    setIsReporting(true);
+    try {
+      await reportComment(node.postId, node.id, reportReason);
+      setHasReported(true);
+      if (reportedCommentsKey) {
+        const reported = JSON.parse(localStorage.getItem(reportedCommentsKey) ?? '[]') as string[];
+        localStorage.setItem(reportedCommentsKey, JSON.stringify([...reported, node.id]));
+      }
+      toast.success('Comment reported successfully');
+      setShowReportModal(false);
+      setReportReason('');
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to report comment');
+    } finally {
+      setIsReporting(false);
+    }
+  };
+
   if (node.removed) {
     return (
       <div className="border-l-2 border-gray-200 pl-4 mb-3">
@@ -78,7 +163,7 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
                 node={childNode} 
                 onReply={onReply}
                 onDelete={onDelete}
-                isModerator={isModerator}
+                isModerator={_isModerator}
               />
             ))}
           </div>
@@ -101,13 +186,15 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
             <>
               <button
                 onClick={() => handleVote('up')}
-                className={`p-0.5 rounded hover:bg-orange-100 ${vote === 'up' ? 'text-orange-500' : 'text-gray-300 hover:text-orange-400'}`}
+                disabled={isVoting}
+                className={`p-0.5 rounded hover:bg-orange-100 ${userVote === 1 ? 'text-orange-500' : 'text-gray-300 hover:text-orange-400'}`}
               >
                 <ArrowUp className="w-4 h-4" />
               </button>
               <button
                 onClick={() => handleVote('down')}
-                className={`p-0.5 rounded hover:bg-blue-100 ${vote === 'down' ? 'text-blue-500' : 'text-gray-300 hover:text-blue-400'}`}
+                disabled={isVoting}
+                className={`p-0.5 rounded hover:bg-blue-100 ${userVote === -1 ? 'text-blue-500' : 'text-gray-300 hover:text-blue-400'}`}
               >
                 <ArrowDown className="w-4 h-4" />
               </button>
@@ -129,6 +216,32 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
             <span title={node.createdAt.toLocaleString()}>
               {formatDistanceToNow(node.createdAt, { addSuffix: true })}
             </span>
+            {canDeleteComment && onDelete && (
+              <div className="ml-auto relative">
+                <button
+                  onClick={() => setShowCommentMenu((prev) => !prev)}
+                  className="p-1 rounded-full text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                  aria-label="Comment actions"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+                {showCommentMenu && (
+                  <div className="absolute right-0 mt-1 w-40 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-20">
+                    <button
+                      onClick={async () => {
+                        await handleDelete();
+                        setShowCommentMenu(false);
+                      }}
+                      disabled={isDeleting}
+                      className="flex items-center gap-2 px-3 py-2 hover:bg-gray-100 w-full text-left text-sm disabled:opacity-60"
+                    >
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                      {isDeleting ? 'Deleting...' : 'Delete Comment'}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {!collapsed && (
@@ -150,12 +263,21 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
                     Reply
                   </button>
 
-                  <button className="flex items-center gap-1 text-xs text-gray-500 hover:text-red-500 font-medium ml-1">
+
+                  <button
+                    onClick={handleReport}
+                    className={`flex items-center gap-1 text-xs font-medium ml-1 ${
+                      hasReported
+                        ? 'text-red-500 cursor-not-allowed'
+                        : 'text-gray-500 hover:text-red-500'
+                    }`}
+                    disabled={hasReported}
+                  >
                     <Flag className="w-3.5 h-3.5" />
-                    Report
+                    {hasReported ? 'Reported' : 'Report'}
                   </button>
                   
-                  {(isModerator || node.author === "moderator") && onDelete && (
+                  {(_isModerator || node.author === "moderator") && onDelete && (
                     <button 
                       onClick={handleDelete}
                       disabled={isDeleting}
@@ -203,7 +325,7 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator 
                       node={childNode} 
                       onReply={onReply}
                       onDelete={onDelete}
-                      isModerator={isModerator}
+                      isModerator={_isModerator}
                     />
                   ))}
                 </div>

@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/r/{subreddit}/automod")
+@RequestMapping({"/api/v1/r/{subreddit}/automod", "/r/{subreddit}/automod"})
 public class AutoModRuleController {
 
     private final AutoModRuleService service;
@@ -25,6 +25,13 @@ public class AutoModRuleController {
             @AuthenticationPrincipal String username) {
         List<AutoModRule> rules = service.getRules(subreddit, username);
         return ResponseEntity.ok(Map.of("data", rules));
+    }
+
+    @GetMapping("/history")
+    public ResponseEntity<AutoModHistoryResponse> getHistory(
+            @PathVariable String subreddit,
+            @AuthenticationPrincipal String username) {
+        return ResponseEntity.ok(service.getHistory(subreddit, username));
     }
 
     @PostMapping("/rules")
@@ -47,13 +54,17 @@ public class AutoModRuleController {
     }
 
     @PatchMapping("/rules/{ruleId}")
-    public ResponseEntity<Void> toggleRule(
+    public ResponseEntity<AutoModRule> toggleRule(
             @PathVariable String subreddit,
             @PathVariable String ruleId,
             @RequestBody Map<String, Boolean> body,
             @AuthenticationPrincipal String username) {
-        service.toggleRule(subreddit, ruleId, body.get("enabled"), username);
-        return ResponseEntity.ok().build();
+        Boolean enabled = body.get("enabled");
+        if (enabled == null) {
+            throw new IllegalArgumentException("'enabled' field is required in request body");
+        }
+        AutoModRule rule = service.toggleRule(subreddit, ruleId, enabled, username);
+        return ResponseEntity.ok(rule);
     }
 
     @DeleteMapping("/rules/{ruleId}")

@@ -196,9 +196,8 @@ export default function ModTools() {
           <Link
             key={tool.label}
             to={tool.path}
-            className={`bg-white border border-gray-300 rounded p-5 hover:border-blue-400 hover:shadow-sm transition-all group ${
-              isActive(tool.path) ? 'border-blue-500 shadow-sm' : ''
-            }`}
+            className={`bg-white border border-gray-300 rounded p-5 hover:border-blue-400 hover:shadow-sm transition-all group ${isActive(tool.path) ? 'border-blue-500 shadow-sm' : ''
+              }`}
           >
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-3">
@@ -231,19 +230,18 @@ export default function ModTools() {
         <div className="divide-y divide-gray-200">
           {subModLogs.slice(0, 5).map((log) => (
             <div key={log.id} className="px-6 py-3 flex items-center gap-3">
-              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${
-                log.action.includes('remove') || log.action.includes('ban')
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center ${log.action.includes('remove') || log.action.includes('ban')
                   ? 'bg-red-100 text-red-600'
                   : log.action.includes('approve')
-                  ? 'bg-green-100 text-green-600'
-                  : 'bg-blue-100 text-blue-600'
-              }`}>
+                    ? 'bg-green-100 text-green-600'
+                    : 'bg-blue-100 text-blue-600'
+                }`}>
                 {log.action.includes('remove') ? <Gavel className="w-4 h-4" /> :
-                 log.action.includes('ban') ? <UserX className="w-4 h-4" /> :
-                 log.action.includes('approve') ? <Eye className="w-4 h-4" /> :
-                 log.action.includes('lock') ? <Lock className="w-4 h-4" /> :
-                 log.action.includes('pin') ? <Pin className="w-4 h-4" /> :
-                 <Shield className="w-4 h-4" />}
+                  log.action.includes('ban') ? <UserX className="w-4 h-4" /> :
+                    log.action.includes('approve') ? <Eye className="w-4 h-4" /> :
+                      log.action.includes('lock') ? <Lock className="w-4 h-4" /> :
+                        log.action.includes('pin') ? <Pin className="w-4 h-4" /> :
+                          <Shield className="w-4 h-4" />}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="text-sm">

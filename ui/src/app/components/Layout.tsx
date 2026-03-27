@@ -5,7 +5,7 @@ import { Search, Bell, Plus, Menu, LogOut, User, Shield, X, TrendingUp, Home as 
 import { useState, useRef, useEffect } from 'react';
 import { formatNumber } from '../utils/format';
 import { formatDistanceToNow } from 'date-fns';
-import { getAllSubreddits } from '../services/subredditApi';
+import { getAllSubreddits, getUserCommunities, leaveSubredditPresence } from '../services/subredditApi';
 import { getUserConversations } from '../services/messagingApi';
 import type { Notification, Subreddit } from '../types/domain';
 
@@ -88,7 +88,13 @@ export default function Layout() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (token && joinedSubreddits.length > 0) {
+      await Promise.all(
+        joinedSubreddits.map((sub) => leaveSubredditPresence(token, sub.name).catch(() => undefined))
+      );
+    }
+
     logout();
     setShowUserMenu(false);
     navigate('/');

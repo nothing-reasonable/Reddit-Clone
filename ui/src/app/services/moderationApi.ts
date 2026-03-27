@@ -1,11 +1,20 @@
 const MODERATION_SERVICE_URL = 'http://localhost:8084';
 
+function parseApiTimestamp(timestamp: string): Date {
+  const value = (timestamp || '').trim();
+  if (!value) return new Date(NaN);
+
+  const hasTimezone = /[zZ]|[+\-]\d{2}:\d{2}$/.test(value);
+  return new Date(hasTimezone ? value : `${value}Z`);
+}
+
 export interface ModQueueItem {
   id: string;
   type: string;
   status: string;
   flagReason: string;
   reportCount: number;
+  reportReasonsList?: string[];
   contentTitle: string;
   contentBody: string;
   author: string;
@@ -88,6 +97,19 @@ export interface TestPlaygroundResponse {
   error: string | null;
 }
 
+export interface SavedRuleTestResult {
+  ruleId: string;
+  ruleName: string;
+  triggered: boolean;
+  action: string | null;
+  message: string | null;
+  error: string | null;
+}
+
+export interface SavedRulesTestResponse {
+  results: SavedRuleTestResult[];
+}
+
 export interface ModLogEntryDto {
   id: string;
   subreddit: string;
@@ -112,7 +134,43 @@ export async function getModLog(token: string, subreddit: string): Promise<impor
     action: entry.action,
     targetContent: entry.targetContent,
     targetUser: entry.targetUser,
-    timestamp: new Date(entry.timestamp),
+    timestamp: parseApiTimestamp(entry.timestamp),
+  }));
+}
+
+export interface AutoModLogEntryDto {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  action: string;
+  targetType: string;
+  targetId: string;
+  targetAuthor: string;
+  targetTitle?: string;
+  reason?: string;
+  timestamp: string;
+}
+
+export async function getAutoModLogs(token: string, subreddit: string, action?: string): Promise<import('../types/domain').AutoModLogEntry[]> {
+  let url = `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/automod/logs`;
+  if (action) {
+    url += `?action=${encodeURIComponent(action)}`;
+  }
+  const response = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new Error(`Failed to fetch AutoMod logs (${response.status})`);
+  const responseData = await response.json() as { data: AutoModLogEntryDto[] };
+  const data = responseData.data || [];
+  return data.map((entry) => ({
+    id: entry.id,
+    ruleId: entry.ruleId,
+    ruleName: entry.ruleName,
+    action: entry.action,
+    targetType: entry.targetType,
+    targetId: entry.targetId,
+    targetAuthor: entry.targetAuthor,
+    targetTitle: entry.targetTitle,
+    reason: entry.reason,
+    timestamp: parseApiTimestamp(entry.timestamp),
   }));
 }
 
@@ -140,6 +198,27 @@ export async function testCustomRule(
   }
 
   return data as TestPlaygroundResponse;
+}
+
+export async function testSavedRules(
+  token: string,
+  request: { subredditName: string; scenario: TestScenario }
+): Promise<SavedRulesTestResponse> {
+  const response = await fetch(`${MODERATION_SERVICE_URL}/api/moderation/tests/saved`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(request),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(data.error || data.message || `Server error: ${response.status}`);
+  }
+
+  return data as SavedRulesTestResponse;
 }
 
 // ─── AutoMod Rule CRUD ────────────────────────────────────────────────────────
@@ -202,7 +281,7 @@ export async function updateAutoModRule(
   return response.json() as Promise<AutoModRuleDto>;
 }
 
-export async function toggleAutoModRule(token: string, subreddit: string, ruleId: string, enabled: boolean): Promise<void> {
+export async function toggleAutoModRule(token: string, subreddit: string, ruleId: string, enabled: boolean): Promise<AutoModRuleDto> {
   const response = await fetch(
     `${MODERATION_SERVICE_URL}/api/v1/r/${encodeURIComponent(subreddit)}/automod/rules/${ruleId}`,
     {
@@ -211,7 +290,11 @@ export async function toggleAutoModRule(token: string, subreddit: string, ruleId
       body: JSON.stringify({ enabled }),
     }
   );
-  if (!response.ok) throw new Error(`Failed to toggle AutoMod rule (${response.status})`);
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ error: `HTTP ${response.status}` }));
+    throw new Error(error.error || `Failed to toggle AutoMod rule (${response.status})`);
+  }
+  return response.json() as Promise<AutoModRuleDto>;
 }
 
 export async function deleteAutoModRule(token: string, subreddit: string, ruleId: string): Promise<void> {
@@ -221,3 +304,55 @@ export async function deleteAutoModRule(token: string, subreddit: string, ruleId
   );
   if (!response.ok) throw new Error(`Failed to delete AutoMod rule (${response.status})`);
 }
+
+export interface AutoModHistoryEntry {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  action: string;
+  moderator: string;
+  timestamp: string;
+  changes?: Record<string, unknown>;
+}
+
+export interface AutoModHistoryResponse {
+  data: AutoModHistoryEntry[];
+}
+
+export async function getAutoModHistory(token: string, subreddit: string): Promise<AutoModHistoryEntry[]> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/v1/r/${encodeURIComponent(subreddit)}/automod/history`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) throw new Error(`Failed to fetch AutoMod history (${response.status})`);
+  const data = await response.json() as AutoModHistoryResponse;
+  return data.data ?? [];
+}
+
+// ─── Direct Post Mod Actions (used from PostDetail) ───────────────────────────
+
+async function postModAction(token: string, subreddit: string, postId: string, action: string): Promise<void> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/mod-actions/${encodeURIComponent(postId)}/${action}`,
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) throw new Error(`Mod action '${action}' failed (${response.status})`);
+}
+
+export const lockPost    = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'lock');
+export const unlockPost  = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'unlock');
+export const pinPost     = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'pin');
+export const unpinPost   = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'unpin');
+export const removePost  = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'remove');
+export const restorePost = (token: string, subreddit: string, postId: string) => postModAction(token, subreddit, postId, 'approve');
+
+async function commentModAction(token: string, subreddit: string, postId: string, commentId: string, action: string): Promise<void> {
+  const response = await fetch(
+    `${MODERATION_SERVICE_URL}/api/r/${encodeURIComponent(subreddit)}/mod-actions/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}/${action}`,
+    { method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!response.ok) throw new Error(`Comment mod action '${action}' failed (${response.status})`);
+}
+
+export const removeComment  = (token: string, subreddit: string, postId: string, commentId: string) => commentModAction(token, subreddit, postId, commentId, 'remove');
+export const approveComment = (token: string, subreddit: string, postId: string, commentId: string) => commentModAction(token, subreddit, postId, commentId, 'approve');

@@ -2,12 +2,15 @@ package com.example.moderationservice.automod;
 
 import com.example.moderationservice.auth.ModeratorAuthService;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @Service
@@ -15,12 +18,16 @@ import java.util.Map;
 public class AutoModRuleService {
 
     private final AutoModRuleRepository repository;
+    private final AutoModRuleHistoryRepository historyRepository;
     private final ModeratorAuthService moderatorAuthService;
     private final ObjectMapper yamlMapper = new ObjectMapper(new YAMLFactory());
+    private final ObjectMapper jsonMapper = new ObjectMapper();
 
     public AutoModRuleService(AutoModRuleRepository repository,
+                              AutoModRuleHistoryRepository historyRepository,
                               ModeratorAuthService moderatorAuthService) {
         this.repository = repository;
+        this.historyRepository = historyRepository;
         this.moderatorAuthService = moderatorAuthService;
     }
 
@@ -42,7 +49,15 @@ public class AutoModRuleService {
         rule.setYamlContent(request.getYamlContent());
         rule.setLastEditedBy(username);
 
-        return repository.save(rule);
+        AutoModRule saved = repository.save(rule);
+        recordHistory(saved.getSubredditName(), saved.getId(), "created", username, Map.of(
+            "name", saved.getName(),
+            "enabled", saved.isEnabled(),
+            "priority", saved.getPriority(),
+            "moderatorsExempt", saved.isModeratorsExempt(),
+            "yamlContent", saved.getYamlContent()
+        ));
+        return saved;
     }
 
     public AutoModRule replaceRule(String subredditName, String ruleId,
@@ -50,8 +65,8 @@ public class AutoModRuleService {
         moderatorAuthService.requireModerator(subredditName, username);
         validateYaml(request.getYamlContent());
 
-        AutoModRule rule = repository.findById(ruleId)
-                .orElseThrow(() -> new RuntimeException("Rule not found"));
+        AutoModRule rule = getRuleOrThrow(subredditName, ruleId);
+        Map<String, Object> before = toRuleSnapshot(rule);
         rule.setName(request.getName());
         rule.setEnabled(request.isEnabled());
         rule.setPriority(request.getPriority());
@@ -59,24 +74,46 @@ public class AutoModRuleService {
         rule.setYamlContent(request.getYamlContent());
         rule.setLastEditedBy(username);
 
-        return repository.save(rule);
+        AutoModRule saved = repository.save(rule);
+        Map<String, Object> changes = new LinkedHashMap<>();
+        changes.put("before", before);
+        changes.put("after", toRuleSnapshot(saved));
+        recordHistory(saved.getSubredditName(), saved.getId(), "updated", username, changes);
+        return saved;
     }
 
-    public void toggleRule(String subredditName, String ruleId,
+    public AutoModRule toggleRule(String subredditName, String ruleId,
                            boolean enabled, String username) {
         moderatorAuthService.requireModerator(subredditName, username);
-        AutoModRule rule = repository.findById(ruleId)
-                .orElseThrow(() -> new RuntimeException("Rule not found"));
+        AutoModRule rule = getRuleOrThrow(subredditName, ruleId);
+        boolean previous = rule.isEnabled();
         rule.setEnabled(enabled);
         rule.setLastEditedBy(username);
-        repository.save(rule);
+        AutoModRule saved = repository.save(rule);
+
+        recordHistory(saved.getSubredditName(), saved.getId(), "toggled", username, Map.of(
+            "beforeEnabled", previous,
+            "afterEnabled", saved.isEnabled()
+        ));
+        return saved;
     }
 
     public void deleteRule(String subredditName, String ruleId, String username) {
         moderatorAuthService.requireModerator(subredditName, username);
-        AutoModRule rule = repository.findById(ruleId)
-                .orElseThrow(() -> new RuntimeException("Rule not found"));
+        AutoModRule rule = getRuleOrThrow(subredditName, ruleId);
+        Map<String, Object> deletedSnapshot = toRuleSnapshot(rule);
+        recordHistory(rule.getSubredditName(), rule.getId(), "deleted", username, Map.of("deletedRule", deletedSnapshot));
         repository.delete(rule);
+    }
+
+    public AutoModHistoryResponse getHistory(String subredditName, String username) {
+        moderatorAuthService.requireModerator(subredditName, username);
+        List<AutoModHistoryEntryResponse> data = historyRepository
+                .findBySubredditNameOrderByTimestampDesc(subredditName)
+                .stream()
+                .map(this::toHistoryEntryResponse)
+                .toList();
+        return new AutoModHistoryResponse(data);
     }
 
     public List<Map<String, Object>> getParsedRules(String subredditName) {
@@ -100,6 +137,109 @@ public class AutoModRuleService {
             yamlMapper.readValue(yaml, new TypeReference<Map<String, Object>>() {});
         } catch (Exception e) {
             throw new IllegalArgumentException("Invalid YAML: " + e.getMessage());
+        }
+    }
+
+    private AutoModRule getRuleOrThrow(String subredditName, String ruleId) {
+        return repository.findByIdAndSubredditName(ruleId, subredditName)
+                .orElseThrow(() -> new IllegalArgumentException("Rule not found"));
+    }
+
+    private Map<String, Object> toRuleSnapshot(AutoModRule rule) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("id", rule.getId());
+        snapshot.put("name", rule.getName());
+        snapshot.put("enabled", rule.isEnabled());
+        snapshot.put("priority", rule.getPriority());
+        snapshot.put("moderatorsExempt", rule.isModeratorsExempt());
+        snapshot.put("yamlContent", rule.getYamlContent());
+        return snapshot;
+    }
+
+    private void recordHistory(String subredditName,
+                               String ruleId,
+                               String action,
+                               String moderator,
+                               Map<String, Object> changes) {
+        AutoModRuleHistory history = new AutoModRuleHistory();
+        history.setSubredditName(subredditName);
+        history.setRuleId(ruleId);
+        history.setAction(action);
+        history.setModerator(moderator);
+        history.setChangesJson(writeJson(changes));
+        historyRepository.save(history);
+    }
+
+    private AutoModHistoryEntryResponse toHistoryEntryResponse(AutoModRuleHistory history) {
+        Map<String, Object> changes = readJsonMap(history.getChangesJson());
+        String ruleName = resolveRuleName(history, changes);
+        
+        return new AutoModHistoryEntryResponse(
+                history.getId(),
+                history.getRuleId(),
+                ruleName,
+                history.getAction(),
+                history.getModerator(),
+                history.getTimestamp(),
+                changes
+        );
+    }
+
+    private String resolveRuleName(AutoModRuleHistory history, Map<String, Object> changes) {
+        // Prefer current repository value for active rules.
+        String currentName = repository.findById(history.getRuleId())
+                .map(AutoModRule::getName)
+                .orElse(null);
+        if (currentName != null && !currentName.isBlank()) {
+            return currentName;
+        }
+
+        // For deleted rules, fall back to snapshot data captured in history.
+        Object deletedRuleObj = changes.get("deletedRule");
+        if (deletedRuleObj instanceof Map<?, ?> deletedRule) {
+            Object nameObj = deletedRule.get("name");
+            if (nameObj instanceof String deletedName && !deletedName.isBlank()) {
+                return deletedName;
+            }
+        }
+
+        Object afterObj = changes.get("after");
+        if (afterObj instanceof Map<?, ?> afterMap) {
+            Object nameObj = afterMap.get("name");
+            if (nameObj instanceof String afterName && !afterName.isBlank()) {
+                return afterName;
+            }
+        }
+
+        Object beforeObj = changes.get("before");
+        if (beforeObj instanceof Map<?, ?> beforeMap) {
+            Object nameObj = beforeMap.get("name");
+            if (nameObj instanceof String beforeName && !beforeName.isBlank()) {
+                return beforeName;
+            }
+        }
+
+        Object topLevelName = changes.get("name");
+        if (topLevelName instanceof String directName && !directName.isBlank()) {
+            return directName;
+        }
+
+        return "[Deleted Rule]";
+    }
+
+    private String writeJson(Map<String, Object> data) {
+        try {
+            return jsonMapper.writeValueAsString(data);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("Unable to serialize history changes", e);
+        }
+    }
+
+    private Map<String, Object> readJsonMap(String data) {
+        try {
+            return jsonMapper.readValue(data, new TypeReference<Map<String, Object>>() {});
+        } catch (Exception e) {
+            return new HashMap<>();
         }
     }
 }

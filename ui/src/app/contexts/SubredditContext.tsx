@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, ReactNode, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 
 interface JoinedSubreddit {
   name: string;
@@ -20,23 +21,40 @@ interface SubredditContextType {
 const SubredditContext = createContext<SubredditContextType | undefined>(undefined);
 
 export function SubredditProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [joinedSubreddits, setJoinedSubreddits] = useState<JoinedSubreddit[]>([]);
   const [pendingModApplications, setPendingModApplications] = useState<string[]>([]);
 
+  const storageScope = user?.username ? `:${user.username}` : ':guest';
+  const joinedSubredditsKey = `joinedSubreddits${storageScope}`;
+  const pendingModAppsKey = `pendingModApplications${storageScope}`;
+
   useEffect(() => {
-    // Load from localStorage
-    const stored = localStorage.getItem('joinedSubreddits');
-    const storedApps = localStorage.getItem('pendingModApplications');
+    // Load membership state for the currently authenticated user only.
+    const stored = localStorage.getItem(joinedSubredditsKey);
+    const storedApps = localStorage.getItem(pendingModAppsKey);
+
+    if (!user) {
+      setJoinedSubreddits([]);
+      setPendingModApplications([]);
+      return;
+    }
+
     if (stored) {
       const parsed = JSON.parse(stored);
       setJoinedSubreddits(
         parsed.map((s: any) => ({ ...s, joinedAt: new Date(s.joinedAt) }))
       );
+    } else {
+      setJoinedSubreddits([]);
     }
+
     if (storedApps) {
       setPendingModApplications(JSON.parse(storedApps));
+    } else {
+      setPendingModApplications([]);
     }
-  }, []);
+  }, [user, joinedSubredditsKey, pendingModAppsKey]);
 
   // Try to fetch pending applications from server if we have a token
   useEffect(() => {
@@ -66,13 +84,13 @@ export function SubredditProvider({ children }: { children: ReactNode }) {
       { name: subreddit, role, joinedAt: new Date() },
     ];
     setJoinedSubreddits(newJoined);
-    localStorage.setItem('joinedSubreddits', JSON.stringify(newJoined));
+    localStorage.setItem(joinedSubredditsKey, JSON.stringify(newJoined));
   };
 
   const leaveSubreddit = (subreddit: string) => {
     const newJoined = joinedSubreddits.filter((s) => s.name !== subreddit);
     setJoinedSubreddits(newJoined);
-    localStorage.setItem('joinedSubreddits', JSON.stringify(newJoined));
+    localStorage.setItem(joinedSubredditsKey, JSON.stringify(newJoined));
   };
 
   const isJoined = (subreddit: string) => {
@@ -87,7 +105,7 @@ export function SubredditProvider({ children }: { children: ReactNode }) {
     if (!pendingModApplications.includes(subreddit)) {
       const newApps = [...pendingModApplications, subreddit];
       setPendingModApplications(newApps);
-      localStorage.setItem('pendingModApplications', JSON.stringify(newApps));
+      localStorage.setItem(pendingModAppsKey, JSON.stringify(newApps));
     }
   };
 

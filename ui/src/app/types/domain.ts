@@ -19,6 +19,7 @@ export interface Post {
   flagged?: boolean;
   flagReason?: string;
   removed?: boolean;
+  deleted?: boolean;
   locked?: boolean;
   pinned?: boolean;
   awards?: Award[];
@@ -46,6 +47,7 @@ export interface SubredditRule {
 }
 
 export interface Subreddit {
+  id?: number;
   name: string;
   description: string;
   longDescription: string;
@@ -68,6 +70,19 @@ export interface ModLogEntry {
   action: string;
   targetUser?: string;
   targetContent?: string;
+  reason?: string;
+  timestamp: Date;
+}
+
+export interface AutoModLogEntry {
+  id: string;
+  ruleId: string;
+  ruleName: string;
+  action: string;
+  targetType: string; // 'post' or 'comment'
+  targetId: string;
+  targetAuthor: string;
+  targetTitle?: string;
   reason?: string;
   timestamp: Date;
 }

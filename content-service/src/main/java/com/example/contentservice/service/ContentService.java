@@ -34,11 +34,11 @@ public class ContentService {
     private final ModerationService moderationService;
 
     public Page<Post> getGlobalPosts(Pageable pageable) {
-        return postRepository.findByRemovedFalse(pageable);
+        return postRepository.findByRemovedFalseExcludingAutoModFlaggedOnly(pageable);
     }
 
     public Page<Post> getSubredditPosts(String subreddit, Pageable pageable) {
-        return postRepository.findBySubredditAndRemovedFalse(subreddit, pageable);
+        return postRepository.findBySubredditAndRemovedFalseExcludingAutoModFlaggedOnly(subreddit, pageable);
     }
 
     @Transactional
@@ -109,7 +109,8 @@ public class ContentService {
             if (rule == null || rule.getYamlContent() == null) continue;
 
             ModerationService.AutoModEvaluationResponse result =
-                    moderationService.evaluateRule(rule.getYamlContent(), context.toMap());
+                    moderationService.evaluateRule(rule.getYamlContent(), context.toMap(), 
+                                                   rule.getId(), rule.getName(), subreddit);
 
             if (result.isTriggered()) {
                 String action = result.getAction();
@@ -135,6 +136,7 @@ public class ContentService {
         context.setTitle(post.getTitle());
         context.setBody(post.getContent());
         context.setAuthor(post.getAuthor());
+        // context.setId(post.getId());
         context.setSubmissionType(post.getType().name().toLowerCase());
         context.setFlairText(post.getFlair());
 
@@ -161,8 +163,12 @@ public class ContentService {
 
 
     public Post getPost(String postId) {
-        return postRepository.findById(postId)
+        Post post = postRepository.findById(postId)
                 .orElseThrow(() -> new ResourceNotFoundException("Post not found"));
+        if (post.isDeleted()) {
+            throw new ResourceNotFoundException("Post not found");
+        }
+        return post;
     }
 
     public Post updatePost(String postId, String requesterUsername, PostUpdateRequest request) {
@@ -190,6 +196,7 @@ public class ContentService {
         post.setTitle("[deleted]");
         post.setContent("[deleted]");
         post.setAuthor("[deleted]");
+        post.setDeleted(true);
         return postRepository.save(post);
     }
 
@@ -202,18 +209,12 @@ public class ContentService {
         Post post = getPost(postId);
         Vote vote = voteRepository.findByPostIdAndUsername(postId, requesterUsername).orElse(null);
 
-        // Backward-compatible fallback for older posts created before initial author-vote persistence.
-        int previousDirection = vote != null ? vote.getDirection() :
-                (requesterUsername.equals(post.getAuthor()) ? 1 : 0);
+        int previousDirection = vote != null ? vote.getDirection() : 0;
 
-        if (vote == null && requesterUsername.equals(post.getAuthor()) && direction != 0) {
-            Vote authorVote = Vote.builder()
-                    .postId(postId)
-                    .username(requesterUsername)
-                    .direction(direction)
-                    .build();
-            voteRepository.save(authorVote);
-        }
+        int previousUpvoteDelta = previousDirection == 1 ? 1 : 0;
+        int previousDownvoteDelta = previousDirection == -1 ? 1 : 0;
+        int nextUpvoteDelta = direction == 1 ? 1 : 0;
+        int nextDownvoteDelta = direction == -1 ? 1 : 0;
 
         if (vote != null) {
             post.setScore(post.getScore() - previousDirection + direction);
@@ -224,18 +225,23 @@ public class ContentService {
                 voteRepository.save(vote);
             }
         } else if (direction != 0) {
-            if (!requesterUsername.equals(post.getAuthor())) {
-                vote = Vote.builder()
-                        .postId(postId)
-                        .username(requesterUsername)
-                        .direction(direction)
-                        .build();
-                voteRepository.save(vote);
-            }
+            vote = Vote.builder()
+                    .postId(postId)
+                    .username(requesterUsername)
+                    .direction(direction)
+                    .build();
+            voteRepository.save(vote);
             post.setScore(post.getScore() - previousDirection + direction);
         } else {
             post.setScore(post.getScore() - previousDirection);
         }
+
+        int nextUpvotes = post.getUpvotes() - previousUpvoteDelta + nextUpvoteDelta;
+        int nextDownvotes = post.getDownvotes() - previousDownvoteDelta + nextDownvoteDelta;
+        post.setUpvotes(Math.max(0, nextUpvotes));
+        post.setDownvotes(Math.max(0, nextDownvotes));
+        // Keep score consistent with counters even if legacy data had drift.
+        post.setScore(post.getUpvotes() - post.getDownvotes());
 
         postRepository.save(post);
         return post.getScore();

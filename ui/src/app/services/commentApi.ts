@@ -26,6 +26,14 @@ interface PaginatedResponse<T> {
   };
 }
 
+function parseApiTimestamp(timestamp?: string): Date {
+  const value = (timestamp || '').trim();
+  if (!value) return new Date(NaN);
+
+  const hasTimezone = /[zZ]|[+\-]\d{2}:\d{2}$/.test(value);
+  return new Date(hasTimezone ? value : `${value}Z`);
+}
+
 function mapComment(dto: CommentDto): Comment {
   return {
     id: dto.id,
@@ -35,7 +43,7 @@ function mapComment(dto: CommentDto): Comment {
     content: dto.removed ? '[removed]' : dto.content,
     upvotes: dto.upvotes,
     downvotes: dto.downvotes,
-    createdAt: new Date(dto.createdAt),
+    createdAt: parseApiTimestamp(dto.createdAt),
     removed: dto.removed,
     flagged: dto.flagged,
   };
@@ -101,4 +109,38 @@ export async function deleteComment(token: string, postId: string, commentId: st
   if (!response.ok) {
     throw new Error(`Failed to delete comment (${response.status})`);
   }
+}
+
+export async function reportComment(postId: string, commentId: string, reason: string): Promise<void> {
+  const url = `${CONTENT_SERVICE_URL}/api/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}/reports`;
+  
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ reason }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to report comment (${response.status})`);
+  }
+}
+
+export async function voteComment(token: string, postId: string, commentId: string, direction: -1 | 0 | 1): Promise<number> {
+  const response = await fetch(`${CONTENT_SERVICE_URL}/api/posts/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}/votes`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ direction }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to vote on comment (${response.status})`);
+  }
+
+  const payload = (await response.json()) as { score: number };
+  return payload.score;
 }

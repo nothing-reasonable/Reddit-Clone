@@ -5,13 +5,15 @@ import { useEffect, useState } from 'react';
 import {
   Settings, Plus, Trash2, Save, Shield, ArrowLeft, Play, History, FileText,
   Terminal, CheckCircle, AlertTriangle, XCircle, ChevronDown, ChevronUp,
-  Copy, Pencil, Mail, Lock, Pin, Tag, X, Info, Loader2,
+  Copy, Pencil, Mail, Lock, Pin, Tag, X, Info, Loader2, Flag,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow, format } from 'date-fns';
-import yaml from 'js-yaml';
-import { testCustomRule, getAutoModRules, createAutoModRule, updateAutoModRule, toggleAutoModRule, deleteAutoModRule } from '../services/moderationApi';
-import type { AutoModRuleDto } from '../services/moderationApi';
+
+import * as yaml from 'js-yaml';
+import { testCustomRule, testSavedRules, getAutoModRules, createAutoModRule, updateAutoModRule, toggleAutoModRule, deleteAutoModRule, getAutoModHistory, getAutoModLogs } from '../services/moderationApi';
+import type { AutoModRuleDto, AutoModHistoryEntry } from '../services/moderationApi';
+
 import { getSubredditByName } from '../services/subredditApi';
 import type { Subreddit } from '../types/domain';
 
@@ -177,6 +179,61 @@ const MOCK_EDIT_HISTORY: Array<{ id: string; ruleName: string; editor: string; f
 
 const MOCK_LOGS: Array<{ id: string; rule: string; action: ActionType; target: string; author: string; timestamp: Date; status: 'removed' | 'flagged' | 'modmailed' | 'flair_set'; modmailSent: boolean }> = [];
 
+type AutoModLogStatus = 'removed' | 'flagged' | 'modmailed' | 'flair_set' | 'approved';
+
+interface AutoModUiLogEntry {
+  id: string;
+  rule: string;
+  targetType: string;
+  target: string;
+  author: string;
+  timestamp: Date;
+  status: AutoModLogStatus;
+  modmailSent: boolean;
+}
+
+function mapActionToStatus(action: string): AutoModLogStatus {
+  if (action === 'remove') return 'removed';
+  if (action === 'flag') return 'flagged';
+  if (action === 'send_modmail') return 'modmailed';
+  if (action === 'set_flair') return 'flair_set';
+  if (action === 'approve') return 'approved';
+  return 'flagged';
+}
+
+function formatTargetContent(targetType: string, targetId: string): string {
+  const normalizedType = (targetType || 'post').trim().toLowerCase();
+  const prettyType = normalizedType.charAt(0).toUpperCase() + normalizedType.slice(1);
+  const normalizedId = (targetId || '').trim();
+
+  if (!normalizedId || normalizedId.toLowerCase() === 'unknown') {
+    return prettyType;
+  }
+
+  return `${prettyType} · ${normalizedId}`;
+}
+
+function resolveTargetDisplay(targetTitle?: string, targetType?: string, targetId?: string): string {
+  const normalizedTitle = (targetTitle || '').trim();
+  if (normalizedTitle.length > 0) {
+    return normalizedTitle;
+  }
+  return formatTargetContent(targetType || 'post', targetId || '');
+}
+
+function normalizeTargetType(targetType?: string): 'post' | 'comment' {
+  const normalized = (targetType || '').trim().toLowerCase();
+  return normalized === 'comment' ? 'comment' : 'post';
+}
+
+function parseApiTimestamp(timestamp?: string): Date {
+  const value = (timestamp || '').trim();
+  if (!value) return new Date(NaN);
+
+  const hasTimezone = /[zZ]|[+\-]\d{2}:\d{2}$/.test(value);
+  return new Date(hasTimezone ? value : `${value}Z`);
+}
+
 // ─── Empty Rule Template ────────────────────────────────────────────────────────
 
 function emptyRule(editor: string): RichAutoModRule {
@@ -193,6 +250,99 @@ function emptyRule(editor: string): RichAutoModRule {
     lastEditedAt: new Date(),
     createdAt: new Date(),
   };
+}
+
+const HISTORY_ACTION_LABELS: Record<string, string> = {
+  created: 'Created',
+  updated: 'Updated',
+  modified: 'Modified',
+  toggled: 'Toggled',
+  deleted: 'Deleted',
+};
+
+const HISTORY_ACTION_BADGE_CLASSES: Record<string, string> = {
+  created: 'bg-emerald-100 text-emerald-700',
+  updated: 'bg-blue-100 text-blue-700',
+  modified: 'bg-blue-100 text-blue-700',
+  toggled: 'bg-amber-100 text-amber-700',
+  deleted: 'bg-rose-100 text-rose-700',
+};
+
+const HISTORY_ACTION_ICON_CLASSES: Record<string, string> = {
+  created: 'bg-emerald-100 text-emerald-600',
+  updated: 'bg-blue-100 text-blue-600',
+  modified: 'bg-blue-100 text-blue-600',
+  toggled: 'bg-amber-100 text-amber-600',
+  deleted: 'bg-rose-100 text-rose-600',
+};
+
+function asObject(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+}
+
+function getHistoryRuleName(entry: AutoModHistoryEntry): string {
+  if (entry.ruleName && entry.ruleName !== '[Deleted Rule]') {
+    return entry.ruleName;
+  }
+
+  const changes = asObject(entry.changes);
+  if (!changes) return entry.ruleName || '[Deleted Rule]';
+
+  const deletedRule = asObject(changes.deletedRule);
+  if (deletedRule?.name && typeof deletedRule.name === 'string') return deletedRule.name;
+
+  const after = asObject(changes.after);
+  if (after?.name && typeof after.name === 'string') return after.name;
+
+  const before = asObject(changes.before);
+  if (before?.name && typeof before.name === 'string') return before.name;
+
+  if (typeof changes.name === 'string') return changes.name;
+  return entry.ruleName || '[Deleted Rule]';
+}
+
+function getHistorySummary(entry: AutoModHistoryEntry): string[] {
+  const changes = asObject(entry.changes);
+  if (!changes) return [];
+
+  if (entry.action === 'created') {
+    const name = typeof changes.name === 'string' ? changes.name : null;
+    const enabled = typeof changes.enabled === 'boolean' ? changes.enabled : null;
+    return [
+      name ? `Rule name: ${name}` : 'Rule created',
+      enabled === null ? '' : `Initial state: ${enabled ? 'Enabled' : 'Disabled'}`,
+    ].filter(Boolean);
+  }
+
+  if (entry.action === 'updated' || entry.action === 'modified') {
+    const before = asObject(changes.before);
+    const after = asObject(changes.after);
+    const lines: string[] = ['Rule configuration updated'];
+
+    if (before && after && typeof before.name === 'string' && typeof after.name === 'string' && before.name !== after.name) {
+      lines.push(`Renamed: ${before.name} -> ${after.name}`);
+    }
+    return lines;
+  }
+
+  if (entry.action === 'toggled') {
+    const beforeEnabled = typeof changes.beforeEnabled === 'boolean' ? changes.beforeEnabled : null;
+    const afterEnabled = typeof changes.afterEnabled === 'boolean' ? changes.afterEnabled : null;
+    if (beforeEnabled !== null && afterEnabled !== null) {
+      return [`Status changed: ${beforeEnabled ? 'Enabled' : 'Disabled'} -> ${afterEnabled ? 'Enabled' : 'Disabled'}`];
+    }
+    return ['Rule status changed'];
+  }
+
+  if (entry.action === 'deleted') {
+    const deletedRule = asObject(changes.deletedRule);
+    if (deletedRule && typeof deletedRule.name === 'string') {
+      return [`Deleted rule: ${deletedRule.name}`];
+    }
+    return ['Rule deleted'];
+  }
+
+  return [];
 }
 
 // ─── Component ──────────────────────────────────────────────────────────────────
@@ -249,6 +399,7 @@ export default function AutoModSettings() {
 
   const [rules, setRules] = useState<RichAutoModRule[]>(() => createSeedRules(subreddit || ''));
   const [rulesLoading, setRulesLoading] = useState(false);
+  const [togglingRuleId, setTogglingRuleId] = useState<string | null>(null);
 
   // Load rules from backend on mount
   useEffect(() => {
@@ -274,8 +425,8 @@ export default function AutoModSettings() {
             action: parsedAction,
             yamlContent: dto.yamlContent,
             lastEditedBy: dto.lastEditedBy,
-            lastEditedAt: new Date(dto.lastEditedAt),
-            createdAt: new Date(dto.createdAt),
+            lastEditedAt: parseApiTimestamp(dto.lastEditedAt),
+            createdAt: parseApiTimestamp(dto.createdAt),
           };
         }));
       })
@@ -285,6 +436,25 @@ export default function AutoModSettings() {
   }, [subreddit, token]);
   const [activeTab, setActiveTab] = useState<'rules' | 'history' | 'test' | 'logs'>('rules');
 
+  const [history, setHistory] = useState<AutoModHistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (!subreddit || !token || activeTab !== 'history') return;
+    let cancelled = false;
+    setHistoryLoading(true);
+    getAutoModHistory(token, subreddit)
+      .then((entries) => {
+        if (!cancelled) setHistory(entries);
+      })
+      .catch(() => {
+        if (!cancelled) setHistory([]);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [subreddit, token, activeTab]);
   // Rule editor
   const [showEditor, setShowEditor] = useState(false);
   const [editingRule, setEditingRule] = useState<RichAutoModRule | null>(null);
@@ -319,10 +489,47 @@ export default function AutoModSettings() {
 
   // Logs filter
   const [logFilter, setLogFilter] = useState<'all' | 'removed' | 'flagged' | 'modmailed' | 'flair_set'>('all');
+  const [automodLogs, setAutomodLogs] = useState<AutoModUiLogEntry[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!subreddit || !token) return;
+    let cancelled = false;
+    setLogsLoading(true);
+    getAutoModLogs(token, subreddit)
+      .then((entries) => {
+        if (cancelled) return;
+        const mapped: AutoModUiLogEntry[] = entries.map((entry) => {
+          const status = mapActionToStatus(entry.action);
+          return {
+            id: entry.id,
+            rule: entry.ruleName,
+            targetType: normalizeTargetType(entry.targetType),
+            target: resolveTargetDisplay(entry.targetTitle, entry.targetType, entry.targetId),
+            author: entry.targetAuthor,
+            timestamp: entry.timestamp,
+            status,
+            modmailSent: status === 'modmailed',
+          };
+        });
+        setAutomodLogs(mapped.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime()));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setAutomodLogs([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLogsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [subreddit, token]);
 
   const parseCustomYamlDocuments = (rawYaml: string): string[] => {
     const parsedDocs: unknown[] = [];
-    yaml.loadAll(rawYaml, (doc) => {
+    yaml.loadAll(rawYaml, (doc: unknown) => {
       if (doc !== undefined && doc !== null) {
         parsedDocs.push(doc);
       }
@@ -384,14 +591,31 @@ export default function AutoModSettings() {
 
   const toggleRule = (id: string) => {
     const rule = rules.find((r) => r.id === id);
-    if (!rule || !token) return;
+    if (!rule || !token || togglingRuleId) return; // Prevent multiple simultaneous toggles
     const newEnabled = !rule.enabled;
+    setTogglingRuleId(id);
     toggleAutoModRule(token, subreddit!, id, newEnabled)
-      .then(() => {
-        setRules(rules.map((r) => r.id === id ? { ...r, enabled: newEnabled, lastEditedBy: user!.username, lastEditedAt: new Date() } : r));
-        toast.success(newEnabled ? 'Rule enabled' : 'Rule disabled');
+      .then((updatedRule) => {
+        // Use the returned rule from server for accurate state
+        setRules(rules.map((r) => r.id === id ? {
+          ...r,
+          name: updatedRule.name,
+          enabled: updatedRule.enabled,
+          yamlContent: updatedRule.yamlContent,
+          lastEditedBy: updatedRule.lastEditedBy,
+          lastEditedAt: parseApiTimestamp(updatedRule.lastEditedAt),
+          createdAt: parseApiTimestamp(updatedRule.createdAt),
+        } : r));
+        toast.success(updatedRule.enabled ? 'Rule enabled' : 'Rule disabled');
       })
-      .catch(() => toast.error('Failed to toggle rule'));
+      .catch((error) => {
+        const errorMessage = error instanceof Error ? error.message : 'Failed to toggle rule';
+        toast.error(errorMessage);
+        console.error('Toggle rule error:', errorMessage);
+      })
+      .finally(() => {
+        setTogglingRuleId(null);
+      });
   };
 
   const deleteRule = (id: string) => {
@@ -452,7 +676,13 @@ export default function AutoModSettings() {
       // Update existing rule
       updateAutoModRule(token, subreddit!, editingRule.id, payload)
         .then((dto) => {
-          setRules(rules.map((r) => r.id === dto.id ? { ...r, ...payload, lastEditedBy: dto.lastEditedBy, lastEditedAt: new Date(dto.lastEditedAt) } : r));
+          setRules(rules.map((r) => r.id === dto.id ? {
+            ...r,
+            ...payload,
+            lastEditedBy: dto.lastEditedBy,
+            lastEditedAt: parseApiTimestamp(dto.lastEditedAt),
+            createdAt: parseApiTimestamp(dto.createdAt),
+          } : r));
           toast.success('Rule updated');
           setShowEditor(false);
           setEditingRule(null);
@@ -472,8 +702,8 @@ export default function AutoModSettings() {
             action: 'flag' as const,
             yamlContent: dto.yamlContent,
             lastEditedBy: dto.lastEditedBy,
-            lastEditedAt: new Date(dto.lastEditedAt),
-            createdAt: new Date(dto.createdAt),
+            lastEditedAt: parseApiTimestamp(dto.lastEditedAt),
+            createdAt: parseApiTimestamp(dto.createdAt),
           }]);
           toast.success('Rule created');
           setShowEditor(false);
@@ -575,44 +805,36 @@ export default function AutoModSettings() {
           }
         }
       } else {
-        const enabled = rules.filter((r) => r.enabled);
+        const response = await testSavedRules(token, {
+          subredditName: subreddit || '',
+          scenario,
+        });
 
-        const results = await Promise.allSettled(
-          enabled.map(async (rule) => {
-            const ruleYaml = rule.yamlContent || `type: any\naction: ${rule.action}`;
-            const result = await testCustomRule(token, {
-              subredditName: subreddit || '',
-              ruleYaml,
-              scenario,
-            });
-            return { rule, result };
-          })
-        );
-
-        for (const settled of results) {
-          if (settled.status === 'fulfilled') {
-            const { rule, result } = settled.value;
-            if (result.error) {
-              setTestError((prev) => prev ? `${prev}\n${rule.name}: ${result.error}` : `${rule.name}: ${result.error}`);
-            } else if (result.triggered) {
-              const normalizedAction = normalizeAction(result.action);
-              if (result.action && !isActionType(result.action)) {
-                setTestError((prev) =>
-                  prev
-                    ? `${prev}\n${rule.name}: Unsupported action "${result.action}". Falling back to "flag".`
-                    : `${rule.name}: Unsupported action "${result.action}". Falling back to "flag".`
-                );
-              }
-
-              matches.push({
-                rule: rule.name,
-                action: normalizedAction,
-                message: result.message || rule.messageToUser || undefined,
-              });
-            }
-          } else {
-            setTestError((prev) => prev ? `${prev}\nFailed to evaluate a rule` : 'Failed to evaluate a rule');
+        for (const result of response.results || []) {
+          if (result.error) {
+            const ruleName = result.ruleName || 'Unknown rule';
+            setTestError((prev) => prev ? `${prev}\n${ruleName}: ${result.error}` : `${ruleName}: ${result.error}`);
+            continue;
           }
+
+          if (!result.triggered) {
+            continue;
+          }
+
+          const normalizedAction = normalizeAction(result.action);
+          if (result.action && !isActionType(result.action)) {
+            setTestError((prev) =>
+              prev
+                ? `${prev}\n${result.ruleName}: Unsupported action "${result.action}". Falling back to "flag".`
+                : `${result.ruleName}: Unsupported action "${result.action}". Falling back to "flag".`
+            );
+          }
+
+          matches.push({
+            rule: result.ruleName,
+            action: normalizedAction,
+            message: result.message || undefined,
+          });
         }
       }
     } catch (err) {
@@ -631,10 +853,10 @@ export default function AutoModSettings() {
     { id: 'rules' as const, label: 'Rules', icon: Shield, count: rules.length },
     { id: 'history' as const, label: 'Rule History', icon: History },
     { id: 'test' as const, label: 'TestPlayground', icon: Terminal },
-    { id: 'logs' as const, label: 'Logs', icon: FileText, count: MOCK_LOGS.length },
+    { id: 'logs' as const, label: 'Logs', icon: FileText, count: automodLogs.length },
   ];
 
-  const filteredLogs = logFilter === 'all' ? MOCK_LOGS : MOCK_LOGS.filter((l) => l.status === logFilter);
+  const filteredLogs = logFilter === 'all' ? automodLogs : automodLogs.filter((l) => l.status === logFilter);
 
   // ─── Render ────────────────────────────────────────────────────────────────────
 
@@ -749,10 +971,21 @@ export default function AutoModSettings() {
                       {/* Toggle */}
                       <button
                         onClick={(e) => { e.stopPropagation(); toggleRule(rule.id); }}
-                        className={`w-9 h-5 rounded-full relative transition-colors shrink-0 ${rule.enabled ? 'bg-green-500' : 'bg-gray-300'}`}
-                        title={rule.enabled ? 'Disable' : 'Enable'}
+                        disabled={togglingRuleId === rule.id}
+                        className={`w-9 h-5 rounded-full relative transition-colors shrink-0 flex items-center justify-center ${
+                          togglingRuleId === rule.id
+                            ? 'bg-gray-400 cursor-not-allowed'
+                            : rule.enabled
+                            ? 'bg-green-500 hover:bg-green-600'
+                            : 'bg-gray-300 hover:bg-gray-400'
+                        }`}
+                        title={togglingRuleId === rule.id ? 'Updating...' : rule.enabled ? 'Disable' : 'Enable'}
                       >
-                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${rule.enabled ? 'left-[18px]' : 'left-0.5'}`} />
+                        {togglingRuleId === rule.id ? (
+                          <Loader2 className="w-3 h-3 text-white animate-spin" />
+                        ) : (
+                          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${rule.enabled ? 'left-[18px]' : 'left-0.5'}`} />
+                        )}
                       </button>
 
                       <div className="flex-1 min-w-0">
@@ -834,44 +1067,44 @@ export default function AutoModSettings() {
             <p className="text-sm text-gray-500">Recent changes to AutoMod rules</p>
           </div>
           <div className="divide-y divide-gray-100">
-            {MOCK_EDIT_HISTORY.map((entry) => (
-              <div key={entry.id} className="px-6 py-4 flex items-start gap-4 hover:bg-gray-50">
-                <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0 mt-0.5">
-                  <History className="w-4 h-4 text-gray-500" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap mb-1">
-                    <span className="font-semibold text-sm">{entry.ruleName}</span>
-                    <span className="px-2 py-0.5 text-[11px] bg-gray-100 rounded text-gray-600">
-                      {entry.field === 'new rule' ? 'Created' : `Changed ${entry.field}`}
-                    </span>
-                  </div>
-                  {entry.field !== 'new rule' && entry.field !== 'enabled' && (
-                    <div className="text-xs mb-1 space-y-0.5">
-                      <div className="flex items-start gap-1.5">
-                        <span className="text-red-400 shrink-0">&minus;</span>
-                        <span className="text-gray-500 line-through break-all">{entry.oldValue}</span>
-                      </div>
-                      <div className="flex items-start gap-1.5">
-                        <span className="text-green-500 shrink-0">+</span>
-                        <span className="text-gray-700 break-all">{entry.newValue}</span>
-                      </div>
-                    </div>
-                  )}
-                  {entry.field === 'enabled' && (
-                    <p className="text-xs text-gray-500">
-                      Changed from <span className="font-medium">{entry.oldValue}</span> to <span className="font-medium">{entry.newValue}</span>
-                    </p>
-                  )}
-                  {entry.field === 'new rule' && (
-                    <p className="text-xs text-gray-500">{entry.newValue}</p>
-                  )}
-                  <div className="text-[11px] text-gray-400 mt-1">
-                    by u/{entry.editor} &middot; {format(entry.timestamp, 'MMM d, yyyy h:mm a')} ({formatDistanceToNow(entry.timestamp, { addSuffix: true })})
-                  </div>
-                </div>
+            {historyLoading ? (
+              <div className="px-6 py-8 text-center">
+                <Loader2 className="w-6 h-6 inline animate-spin text-gray-400" />
+                <p className="text-sm text-gray-500 mt-2">Loading history...</p>
               </div>
-            ))}
+            ) : history.length === 0 ? (
+              <div className="px-6 py-8 text-center">
+                <History className="w-8 h-8 inline text-gray-300 mb-2" />
+                <p className="text-sm text-gray-500">No rule changes yet</p>
+              </div>
+            ) : (
+              history.map((entry) => (
+                <div key={entry.id || `${entry.ruleId}-${entry.timestamp}-${entry.action}`} className="px-6 py-4 flex items-start gap-4 hover:bg-gray-50">
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${HISTORY_ACTION_ICON_CLASSES[entry.action] || 'bg-gray-100 text-gray-600'}`}>
+                    <History className="w-4 h-4" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="font-semibold text-sm">{getHistoryRuleName(entry)}</span>
+                      <span className={`px-2 py-0.5 text-[11px] rounded font-medium ${HISTORY_ACTION_BADGE_CLASSES[entry.action] || 'bg-gray-100 text-gray-700'}`}>
+                        {HISTORY_ACTION_LABELS[entry.action] ||
+                          entry.action.charAt(0).toUpperCase() + entry.action.slice(1)}
+                      </span>
+                    </div>
+                    {getHistorySummary(entry).length > 0 && (
+                      <div className="text-xs mb-1 space-y-0.5">
+                        {getHistorySummary(entry).map((line) => (
+                          <div key={line} className="text-gray-600">{line}</div>
+                        ))}
+                      </div>
+                    )}
+                    <div className="text-[11px] text-gray-400 mt-1">
+                      by u/{entry.moderator} &middot; {format(entry.timestamp, 'MMM d, yyyy h:mm a')} ({formatDistanceToNow(entry.timestamp, { addSuffix: true })})
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       )}
@@ -1235,32 +1468,45 @@ export default function AutoModSettings() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {filteredLogs.map((log) => {
-                  const statusColors: Record<string, string> = {
-                    removed: 'bg-red-100 text-red-700',
-                    flagged: 'bg-orange-100 text-orange-700',
-                    modmailed: 'bg-blue-100 text-blue-700',
-                    flair_set: 'bg-teal-100 text-teal-700',
-                    approved: 'bg-green-100 text-green-700',
+                {logsLoading ? (
+                  <tr>
+                    <td colSpan={6} className="px-5 py-8 text-center text-gray-400">Loading log entries...</td>
+                  </tr>
+                ) : filteredLogs.map((log) => {
+                  const actionVisuals: Record<string, { Icon: typeof Shield; iconClasses: string; label: string }> = {
+                    removed: { Icon: Trash2, iconClasses: 'bg-red-100 text-red-600', label: 'Removed' },
+                    flagged: { Icon: Flag, iconClasses: 'bg-orange-100 text-orange-600', label: 'Flagged' },
+                    modmailed: { Icon: Mail, iconClasses: 'bg-blue-100 text-blue-600', label: 'Modmailed' },
+                    flair_set: { Icon: Tag, iconClasses: 'bg-purple-100 text-purple-600', label: 'Flair Set' },
+                    approved: { Icon: CheckCircle, iconClasses: 'bg-green-100 text-green-600', label: 'Approved' },
                   };
-                  const StatusIcon: Record<string, typeof Shield> = {
-                    removed: XCircle,
-                    flagged: AlertTriangle,
-                    modmailed: Mail,
-                    flair_set: Tag,
-                    approved: CheckCircle,
-                  };
-                  const SIcon = StatusIcon[log.status] || AlertTriangle;
+                  const visual = actionVisuals[log.status] || actionVisuals.flagged;
+                  const StatusIcon = visual.Icon;
                   return (
                     <tr key={log.id} className="hover:bg-gray-50">
                       <td className="px-5 py-3">
-                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-semibold rounded-full ${statusColors[log.status] || 'bg-gray-100 text-gray-600'}`}>
-                          <SIcon className="w-3 h-3" />
-                          {log.status === 'flair_set' ? 'Flair Set' : log.status.charAt(0).toUpperCase() + log.status.slice(1)}
-                        </span>
+                        <div className="inline-flex items-center gap-2">
+                          <span className={`w-7 h-7 rounded-full flex items-center justify-center ${visual.iconClasses}`}>
+                            <StatusIcon className="w-3.5 h-3.5" />
+                          </span>
+                          <span className="text-xs font-semibold text-gray-700">{visual.label}</span>
+                        </div>
                       </td>
                       <td className="px-5 py-3 font-medium">{log.rule}</td>
-                      <td className="px-5 py-3 text-gray-600 max-w-[200px] truncate">"{log.target}"</td>
+                      <td className="px-5 py-3 text-gray-600 max-w-[240px]">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide shrink-0 ${
+                              log.targetType === 'comment'
+                                ? 'bg-blue-100 text-blue-700'
+                                : 'bg-emerald-100 text-emerald-700'
+                            }`}
+                          >
+                            {log.targetType}
+                          </span>
+                          <span className="truncate">{log.target}</span>
+                        </div>
+                      </td>
                       <td className="px-5 py-3">
                         <Link to={`/user/${log.author}`} className="text-blue-500 hover:underline">u/{log.author}</Link>
                       </td>
@@ -1271,13 +1517,14 @@ export default function AutoModSettings() {
                           <span className="text-gray-300 text-xs">&mdash;</span>
                         )}
                       </td>
-                      <td className="px-5 py-3 text-gray-400 text-xs whitespace-nowrap">
-                        {formatDistanceToNow(log.timestamp, { addSuffix: true })}
+                      <td className="px-5 py-3 text-xs whitespace-nowrap">
+                        <div className="text-gray-700">{format(log.timestamp, "MMM d, yyyy 'at' h:mm a")}</div>
+                        <div className="text-gray-400">{formatDistanceToNow(log.timestamp, { addSuffix: true })}</div>
                       </td>
                     </tr>
                   );
                 })}
-                {filteredLogs.length === 0 && (
+                {!logsLoading && filteredLogs.length === 0 && (
                   <tr>
                     <td colSpan={6} className="px-5 py-8 text-center text-gray-400">No log entries match this filter.</td>
                   </tr>

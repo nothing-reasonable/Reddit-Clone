@@ -4,6 +4,7 @@ import com.example.subredditservice.dto.*;
 import com.example.subredditservice.exception.ResourceNotFoundException;
 import com.example.subredditservice.exception.SubredditAlreadyExistsException;
 import com.example.subredditservice.model.*;
+import com.example.subredditservice.repository.BannedMemberRepository;
 import com.example.subredditservice.repository.SubredditMemberRepository;
 import com.example.subredditservice.repository.SubredditRepository;
 import com.example.subredditservice.repository.SubredditRuleRepository;
@@ -24,6 +25,8 @@ public class SubredditServiceImpl implements SubredditService {
     private final SubredditRuleRepository ruleRepository;
     private final SubredditMemberRepository memberRepository;
     private final SubredditTakeoverRequestRepository takeoverRequestRepository;
+    private final BannedMemberRepository bannedMemberRepository;
+    private final PresenceService presenceService;
 
     // ───── Subreddit CRUD ─────
 
@@ -49,7 +52,7 @@ public class SubredditServiceImpl implements SubredditService {
                 .type(communityType)
                 .isNsfw(request.isNsfw())
                 .creatorUsername(creatorUsername)
-                .archived(false)
+            .archived(false)
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
@@ -76,11 +79,6 @@ public class SubredditServiceImpl implements SubredditService {
     }
 
     @Override
-    public boolean existsByName(String name) {
-        return subredditRepository.existsByName(name);
-    }
-
-    @Override
     public SubredditDto getSubredditById(Long id) {
         Subreddit subreddit = subredditRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found with id: " + id));
@@ -103,9 +101,15 @@ public class SubredditServiceImpl implements SubredditService {
 
     @Override
     @Transactional
-    public SubredditDto updateSubreddit(String name, UpdateSubredditRequest request) {
+    public SubredditDto updateSubreddit(String name, UpdateSubredditRequest request, String username) {
         Subreddit subreddit = subredditRepository.findByName(name)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + name));
+
+        SubredditMember member = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username)
+                .orElseThrow(() -> new IllegalStateException("Not a member of r/" + name));
+        if (member.getRole() != MemberRole.MODERATOR) {
+            throw new IllegalStateException("You are not a moderator of r/" + name);
+        }
 
         if (request.getDescription() != null) {
             subreddit.setDescription(request.getDescription());
@@ -127,9 +131,16 @@ public class SubredditServiceImpl implements SubredditService {
 
     @Override
     @Transactional
-    public void deleteSubreddit(String name) {
+    public void deleteSubreddit(String name, String username) {
         Subreddit subreddit = subredditRepository.findByName(name)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + name));
+
+        SubredditMember member = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username)
+                .orElseThrow(() -> new IllegalStateException("Not a member of r/" + name));
+        if (member.getRole() != MemberRole.MODERATOR) {
+            throw new IllegalStateException("You are not a moderator of r/" + name);
+        }
+
         subredditRepository.delete(subreddit);
     }
 
@@ -174,7 +185,8 @@ public class SubredditServiceImpl implements SubredditService {
             if (moderatorCount <= 1) {
                 throw new IllegalStateException(
                         "You are the only moderator of r/" + subredditName +
-                                ". Leave the moderator role first, then leave the community.");
+                                ". Leave the moderator role first, then leave the community."
+                );
             }
         }
 
@@ -214,29 +226,6 @@ public class SubredditServiceImpl implements SubredditService {
 
     @Override
     @Transactional
-    public void addModerator(String subredditName, String username) {
-        Subreddit subreddit = subredditRepository.findByName(subredditName)
-                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
-
-        // If member exists, set role to MODERATOR; otherwise create member as MODERATOR
-        var memberOpt = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username);
-        if (memberOpt.isPresent()) {
-            var member = memberOpt.get();
-            member.setRole(MemberRole.MODERATOR);
-            memberRepository.save(member);
-        } else {
-            SubredditMember member = SubredditMember.builder()
-                    .subredditId(subreddit.getId())
-                    .username(username)
-                    .role(MemberRole.MODERATOR)
-                    .joinedAt(LocalDateTime.now())
-                    .build();
-            memberRepository.save(member);
-        }
-    }
-
-    @Override
-    @Transactional
     public void requestTakeover(String subredditName, String username) {
         Subreddit subreddit = subredditRepository.findByName(subredditName)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
@@ -249,7 +238,8 @@ public class SubredditServiceImpl implements SubredditService {
                 .existsBySubredditIdAndRequesterUsernameAndStatus(
                         subreddit.getId(),
                         username,
-                        TakeoverRequestStatus.PENDING);
+                        TakeoverRequestStatus.PENDING
+                );
 
         if (alreadyPending) {
             throw new IllegalStateException("You already have a pending takeover request for r/" + subredditName);
@@ -276,10 +266,75 @@ public class SubredditServiceImpl implements SubredditService {
     }
 
     @Override
+    public List<SubredditMemberDto> getUserCommunities(String username) {
+        return memberRepository.findByUsername(username).stream()
+                .map(this::mapMemberToDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
     public boolean isMember(String subredditName, String username) {
         Subreddit subreddit = subredditRepository.findByName(subredditName)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
         return memberRepository.existsBySubredditIdAndUsername(subreddit.getId(), username);
+    }
+
+    @Override
+    public long heartbeatPresence(String subredditName, String username, String clientSessionId) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        boolean isMember = memberRepository.existsBySubredditIdAndUsernameIgnoreCase(subreddit.getId(), username);
+        if (!isMember) {
+            return presenceService.countOnline(subreddit.getName());
+        }
+
+        String presenceMemberKey = buildPresenceMemberKey(username, clientSessionId);
+
+        return presenceService.touch(subreddit.getName(), presenceMemberKey);
+    }
+
+    @Override
+    public long leavePresence(String subredditName, String username, String clientSessionId) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        boolean isMember = memberRepository.existsBySubredditIdAndUsernameIgnoreCase(subreddit.getId(), username);
+        if (!isMember) {
+            return presenceService.countOnline(subreddit.getName());
+        }
+
+        String presenceMemberKey = buildPresenceMemberKey(username, clientSessionId);
+        return presenceService.remove(subreddit.getName(), presenceMemberKey);
+    }
+
+    private String buildPresenceMemberKey(String username, String clientSessionId) {
+        if (clientSessionId == null || clientSessionId.isBlank()) {
+            return username;
+        }
+        return username + ":" + clientSessionId;
+    }
+
+    @Override
+    @Transactional
+    public void addModerator(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        var memberOpt = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username);
+        if (memberOpt.isPresent()) {
+            var member = memberOpt.get();
+            member.setRole(MemberRole.MODERATOR);
+            memberRepository.save(member);
+        } else {
+            SubredditMember member = SubredditMember.builder()
+                    .subredditId(subreddit.getId())
+                    .username(username)
+                    .role(MemberRole.MODERATOR)
+                    .joinedAt(LocalDateTime.now())
+                    .build();
+            memberRepository.save(member);
+        }
     }
 
     @Override
@@ -379,10 +434,79 @@ public class SubredditServiceImpl implements SubredditService {
         return mapToDto(updated);
     }
 
+    // ───── Bans ─────
+
+    @Override
+    @Transactional
+    public BannedMemberDto banUser(String subredditName, BanRequest request, String moderatorUsername) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        // Remove any existing ban first (re-ban with updated terms)
+        bannedMemberRepository.findBySubredditIdAndUsername(subreddit.getId(), request.getUsername())
+                .ifPresent(bannedMemberRepository::delete);
+
+        LocalDateTime expiresAt = null;
+        if (!request.isPermanent() && request.getDurationDays() != null && request.getDurationDays() > 0) {
+            expiresAt = LocalDateTime.now().plusDays(request.getDurationDays());
+        }
+
+        BannedMember ban = BannedMember.builder()
+                .subredditId(subreddit.getId())
+                .username(request.getUsername())
+                .bannedBy(moderatorUsername)
+                .reason(request.getReason())
+                .permanent(request.isPermanent())
+                .expiresAt(expiresAt)
+                .bannedAt(LocalDateTime.now())
+                .build();
+
+        BannedMember saved = bannedMemberRepository.save(ban);
+        return mapBanToDto(saved);
+    }
+
+    @Override
+    @Transactional
+    public void unbanUser(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        if (!bannedMemberRepository.existsBySubredditIdAndUsername(subreddit.getId(), username)) {
+            throw new ResourceNotFoundException("User is not banned from r/" + subredditName);
+        }
+        bannedMemberRepository.deleteBySubredditIdAndUsername(subreddit.getId(), username);
+    }
+
+    @Override
+    public List<BannedMemberDto> getBannedUsers(String subredditName) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        return bannedMemberRepository.findBySubredditId(subreddit.getId()).stream()
+                .map(this::mapBanToDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public boolean isBanned(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        return bannedMemberRepository.findBySubredditIdAndUsername(subreddit.getId(), username)
+                .map(ban -> {
+                    // Permanent ban always applies
+                    if (ban.isPermanent()) return true;
+                    // Temporary ban: check if still active
+                    return ban.getExpiresAt() != null && ban.getExpiresAt().isAfter(LocalDateTime.now());
+                })
+                .orElse(false);
+    }
+
     // ───── Mapping helpers ─────
 
     private SubredditDto mapToDto(Subreddit subreddit) {
         long memberCount = memberRepository.countBySubredditId(subreddit.getId());
+        long onlineCount = presenceService.countOnline(subreddit.getName());
 
         List<String> moderators = memberRepository
                 .findBySubredditIdAndRole(subreddit.getId(), MemberRole.MODERATOR)
@@ -406,6 +530,7 @@ public class SubredditServiceImpl implements SubredditService {
                 .creatorUsername(subreddit.getCreatorUsername())
                 .archived(subreddit.isArchived())
                 .memberCount(memberCount)
+                .onlineCount(onlineCount)
                 .rules(ruleDtos)
                 .flairs(subreddit.getFlairs())
                 .moderators(moderators)
@@ -426,6 +551,18 @@ public class SubredditServiceImpl implements SubredditService {
                 .username(member.getUsername())
                 .role(member.getRole().name())
                 .joinedAt(member.getJoinedAt())
+                .build();
+    }
+
+    private BannedMemberDto mapBanToDto(BannedMember ban) {
+        return BannedMemberDto.builder()
+                .id(ban.getId())
+                .username(ban.getUsername())
+                .bannedBy(ban.getBannedBy())
+                .reason(ban.getReason())
+                .permanent(ban.isPermanent())
+                .expiresAt(ban.getExpiresAt())
+                .bannedAt(ban.getBannedAt())
                 .build();
     }
 }

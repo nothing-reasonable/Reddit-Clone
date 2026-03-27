@@ -164,6 +164,16 @@ public class PostController {
         commentService.deleteComment(postId, commentId, principal.getName());
     }
 
+    @PutMapping("/posts/{postId}/comments/{commentId}/votes")
+    public Map<String, Integer> voteComment(
+            @PathVariable String postId,
+            @PathVariable String commentId,
+            @RequestBody VoteRequest request,
+            Principal principal) {
+        int newScore = commentService.voteComment(postId, commentId, principal.getName(), request.getDirection());
+        return Collections.singletonMap("score", newScore);
+    }
+
     @GetMapping("/posts/{postId}/comments/{commentId}/replies")
     public List<CommentDto> getCommentReplies(@PathVariable String commentId) {
         return commentService.getReplies(commentId);
