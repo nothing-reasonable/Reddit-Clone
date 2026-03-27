@@ -31,6 +31,8 @@ public interface SubredditService {
     boolean isMember(String subredditName, String username);
     long heartbeatPresence(String subredditName, String username, String clientSessionId);
     long leavePresence(String subredditName, String username, String clientSessionId);
+    void addModerator(String subredditName, String username);
+    List<String> getModeratedSubreddits(String username);
 
     // Rules
     SubredditRuleDto addRule(String subredditName, SubredditRuleDto ruleDto);

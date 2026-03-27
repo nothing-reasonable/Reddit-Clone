@@ -38,6 +38,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
   const { token, user } = useAuth();
 
   const reportedKey = user ? `reportedPosts_${user.username}` : null;
+
   const wasReportedByUser = reportedKey
     ? (JSON.parse(localStorage.getItem(reportedKey) ?? '[]') as string[]).includes(post.id)
     : false;
@@ -157,7 +158,7 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
     if (!reportReason) { toast.error('Please select a reason'); return; }
     if (!token) { toast.error('Please log in to report'); return; }
     try {
-      await reportPost(token, post.id, reportReason);
+      await reportPost(token, post.id);
       if (reportedKey) {
         const reported = JSON.parse(localStorage.getItem(reportedKey) ?? '[]') as string[];
         localStorage.setItem(reportedKey, JSON.stringify([...reported, post.id]));
@@ -316,12 +317,15 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
                 onClick={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+
                   if (hasReported) {
+
                     toast.warning('You have already reported this post.');
                   } else {
                     setShowReportModal(true);
                   }
                 }}
+
                 className={`flex items-center gap-1.5 px-2.5 py-1.5 hover:bg-gray-100 rounded text-xs font-semibold ${hasReported ? 'text-red-400 cursor-default' : 'text-gray-500'}`}
               >
                 <Flag className="w-4 h-4" />

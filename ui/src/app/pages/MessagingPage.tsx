@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
+import { useSubreddit } from '../contexts/SubredditContext';
 import { 
   getUserConversations, 
   getConversationMessages, 
@@ -13,9 +14,11 @@ import {
   ConversationDto,
   MessageDto 
 } from '../services/messagingApi';
+import { acceptApplication, rejectApplication } from '../services/messagingApi';
 
 export default function MessagingPage() {
-  const { user, token } = useAuth();
+  const { user, token, unreadDMs, setUnreadDMs } = useAuth();
+  const { removePendingApplication } = useSubreddit();
   const navigate = useNavigate();
 
   const [conversations, setConversations] = useState<ConversationDto[]>([]);
@@ -66,7 +69,10 @@ export default function MessagingPage() {
     try {
       if (!silent) setIsLoading(true);
       const data = await getUserConversations(token);
-      setConversations(data);
+      // Deduplicate conversations by id to avoid brief duplicates from optimistic updates
+      const unique = new Map<number, typeof data[0]>();
+      for (const c of data) unique.set(c.id, c);
+      setConversations(Array.from(unique.values()));
     } catch (err) {
       if (!silent) toast.error('Failed to load conversations');
     } finally {
@@ -100,6 +106,54 @@ export default function MessagingPage() {
     }
   };
 
+  const handleAcceptApplication = async () => {
+    if (!token || !selectedId) return;
+    try {
+      await acceptApplication(token, String(selectedId));
+      // refresh conversations and messages
+      await fetchConversations();
+      setMessages([]);
+      setSelectedId(null);
+      // clear pending application flag if present
+      try {
+        const other = selected?.otherUser || '';
+        let sub = '';
+        if (other.startsWith('r/')) sub = other.substring(2);
+        else {
+          const m = other.match(/\[r\/(.*?)\]/);
+          if (m) sub = m[1];
+        }
+        if (sub) removePendingApplication(sub);
+      } catch {}
+      toast.success('Application accepted');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to accept application');
+    }
+  };
+
+  const handleRejectApplication = async () => {
+    if (!token || !selectedId) return;
+    try {
+      await rejectApplication(token, String(selectedId));
+      await fetchConversations();
+      setMessages([]);
+      setSelectedId(null);
+      try {
+        const other = selected?.otherUser || '';
+        let sub = '';
+        if (other.startsWith('r/')) sub = other.substring(2);
+        else {
+          const m = other.match(/\[r\/(.*?)\]/);
+          if (m) sub = m[1];
+        }
+        if (sub) removePendingApplication(sub);
+      } catch {}
+      toast.success('Application rejected');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reject application');
+    }
+  };
+
   const handleComposeSend = async () => {
     if (!token || !composeRecipient.trim() || !composeContent.trim()) {
       toast.error('Please fill in all fields');
@@ -107,8 +161,9 @@ export default function MessagingPage() {
     }
     try {
       const newConv = await createConversation(token, composeRecipient, composeContent);
-      setConversations([newConv, ...conversations]);
       setSelectedId(newConv.id);
+      // Refresh authoritative list from server to avoid transient duplicates
+      await fetchConversations();
       setShowCompose(false);
       setComposeRecipient('');
       setComposeContent('');
@@ -123,6 +178,18 @@ export default function MessagingPage() {
   );
 
   const selected = conversations.find(c => c.id === selectedId);
+  const isModConversation = Boolean(
+    selected?.otherUser?.startsWith('r/') || selected?.otherUser?.includes('[r/')
+  );
+
+  // Keep the shared unread count in sync (update parent after render)
+  useEffect(() => {
+    if (setUnreadDMs) {
+      try {
+        setUnreadDMs(conversations.filter((c) => c.unread).length);
+      } catch {}
+    }
+  }, [conversations, setUnreadDMs]);
 
   if (isLoading && conversations.length === 0) {
     return (
@@ -167,15 +234,13 @@ export default function MessagingPage() {
               </div>
             ) : (
               <div className="divide-y divide-gray-100">
-                {filteredConversations.map((conv) => (
+                {filteredConversations.map((conv, i) => (
                   <button
-                    key={conv.id}
+                    key={`conv-${conv.id}-${conv.otherUser}-${i}`}
                     onClick={() => {
                       setSelectedId(conv.id);
                       // Optimistically mark as read
-                      setConversations(prev => prev.map(c => 
-                        c.id === conv.id ? { ...c, unread: false } : c
-                      ));
+                      setConversations(prev => prev.map(c => c.id === conv.id ? { ...c, unread: false } : c));
                     }}
                     className={`w-full text-left p-4 hover:bg-gray-50 transition-colors relative ${
                       selectedId === conv.id ? 'bg-orange-50 border-l-4 border-orange-500' : ''
@@ -188,7 +253,7 @@ export default function MessagingPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex justify-between items-center">
                           <span className={`text-sm truncate ${conv.unread ? 'font-black text-gray-900' : 'font-bold text-gray-600'}`}>
-                            u/{conv.otherUser}
+                            {conv.otherUser}
                             {conv.unread && <span className="ml-2 inline-block w-2 h-2 bg-orange-500 rounded-full" />}
                           </span>
                           <span className="text-[10px] text-gray-400">
@@ -201,7 +266,7 @@ export default function MessagingPage() {
                       </div>
                     </div>
                   </button>
-                ))}
+                  ))}
               </div>
             )}
           </div>
@@ -218,7 +283,7 @@ export default function MessagingPage() {
                     <User className="w-4 h-4 text-orange-500" />
                   </div>
                   <div>
-                    <h2 className="font-bold text-sm">u/{selected?.otherUser}</h2>
+                    <h2 className="font-bold text-sm">{selected?.otherUser}</h2>
                     <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
                       {selected?.status}
                     </span>
@@ -234,15 +299,36 @@ export default function MessagingPage() {
                   </div>
                 ) : (
                   messages.map((msg) => {
-                    const isMe = msg.senderDisplayName === user?.username;
+                    const isMe = msg.senderDisplayName === user?.username || msg.senderDisplayName.startsWith(`u/${user?.username}[`);
+                    // System application message for moderators (accept/reject)
+                    if (msg.senderType === 'SYSTEM' && isModConversation) {
+                      return (
+                        <div key={`msg-${msg.id}-system`} className="flex justify-center">
+                          <div className="bg-white border border-gray-200 rounded-lg p-4 max-w-2xl w-full text-center">
+                            <p className="text-sm text-gray-800 mb-3">{msg.body}</p>
+                            <div className="flex justify-center gap-3">
+                              <button onClick={handleAcceptApplication} className="px-3 py-1 bg-green-600 text-white rounded">Accept</button>
+                              <button onClick={handleRejectApplication} className="px-3 py-1 bg-red-600 text-white rounded">Reject</button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    }
+
                     return (
-                      <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[70%] rounded-2xl p-3 shadow-sm ${
-                          isMe ? 'bg-orange-500 text-white rounded-tr-none' : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none'
-                        }`}>
-                          <p className="text-sm leading-relaxed">{msg.body}</p>
-                          <div className={`text-[10px] mt-1 ${isMe ? 'text-orange-100' : 'text-gray-400'}`}>
-                            {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                      <div key={`msg-${msg.id}-${msg.createdAt}`} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`flex flex-col ${isMe ? 'items-end' : 'items-start'} max-w-[70%]`}>
+                          {msg.senderType === 'MODERATOR' || isModConversation ? (
+                            <span className="text-[10px] text-gray-400 mb-1 px-1">{msg.senderDisplayName}</span>
+                          ) : null}
+                          <div className={`rounded-2xl p-3 shadow-sm ${
+                            isMe ? 'bg-orange-500 text-white rounded-tr-none' : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none'
+                          }`}>
+
+                            <p className="text-sm leading-relaxed">{msg.body}</p>
+                            <div className={`text-[10px] mt-1 ${isMe ? 'text-orange-100' : 'text-gray-400'}`}>
+                              {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                            </div>
                           </div>
                         </div>
                       </div>

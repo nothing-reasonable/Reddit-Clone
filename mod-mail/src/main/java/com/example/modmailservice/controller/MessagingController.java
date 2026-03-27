@@ -30,7 +30,7 @@ public class MessagingController {
             Authentication auth) {
         String username = auth.getName();
         ConversationDto dto = messagingService.createConversation(
-                username, request.getRecipientName(), request.getBody());
+                username, request.getRecipientName(), request.getBody(), request.getActingAsSubreddit());
         return ResponseEntity.status(HttpStatus.CREATED).body(dto);
     }
 
@@ -81,5 +81,38 @@ public class MessagingController {
         String username = auth.getName();
         messagingService.closeConversation(id, username);
         return ResponseEntity.ok().build();
+    }
+
+    /**
+     * POST /api/messages/applications
+     * Create a moderator application system message for a subreddit.
+     */
+    @PostMapping("/applications")
+    public ResponseEntity<ConversationDto> createApplication(
+            @Valid @RequestBody CreateApplicationRequest request,
+            Authentication auth) {
+        String username = auth.getName();
+        ConversationDto dto = messagingService.createModeratorApplication(username, request.getSubreddit());
+        return ResponseEntity.status(HttpStatus.CREATED).body(dto);
+    }
+
+    @PutMapping("/applications/{id}/accept")
+    public ResponseEntity<Void> acceptApplication(@PathVariable Long id, Authentication auth) {
+        String username = auth.getName();
+        messagingService.acceptModeratorApplication(id, username);
+        return ResponseEntity.ok().build();
+    }
+
+    @PutMapping("/applications/{id}/reject")
+    public ResponseEntity<Void> rejectApplication(@PathVariable Long id, Authentication auth) {
+        String username = auth.getName();
+        messagingService.rejectModeratorApplication(id, username);
+        return ResponseEntity.ok().build();
+    }
+
+    @GetMapping("/applications/me")
+    public ResponseEntity<java.util.List<String>> myApplications(Authentication auth) {
+        String username = auth.getName();
+        return ResponseEntity.ok(messagingService.getApplicationsForUser(username));
     }
 }

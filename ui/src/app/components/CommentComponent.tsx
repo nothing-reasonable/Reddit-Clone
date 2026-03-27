@@ -3,6 +3,7 @@ import { useState } from 'react';
 import { Link } from 'react-router';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+
 import { reportComment, voteComment } from '../services/commentApi';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -17,9 +18,9 @@ export type CommentNode = {
   createdAt: Date;
   removed: boolean;
   flagged: boolean;
-  reports?: number;
-  reportReasons?: string;
   replies: CommentNode[];
+  reportReasons?: string[];
+  reports?: number;
 };
 
 interface CommentComponentProps {
@@ -40,6 +41,7 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
   const [collapsed, setCollapsed] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isReplying, setIsReplying] = useState(false);
+
   const [isReporting, setIsReporting] = useState(false);
   const [showReportModal, setShowReportModal] = useState(false);
   const [reportReason, setReportReason] = useState('');
@@ -95,6 +97,7 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
       setIsDeleting(false);
     }
   };
+
 
   const handleReport = () => {
     setShowReportModal(true);
@@ -205,8 +208,8 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
               {node.author}
             </Link>
             {node.flagged && (
-              <span className="bg-yellow-100 text-yellow-800 px-1.5 rounded flex items-center gap-1 font-medium" title={getReportReasonsDisplay()}>
-                <Flag className="w-3 h-3" /> {node.reports && node.reports > 0 ? `${node.reports} Report${node.reports > 1 ? 's' : ''}` : 'AutoMod'}
+              <span className="bg-yellow-100 text-yellow-800 px-1.5 rounded flex items-center gap-1 font-medium">
+                <Flag className="w-3 h-3" /> Flagged
               </span>
             )}
             <span>•</span>
@@ -250,15 +253,16 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
                   {score > 0 ? '+' : ''}{score} vote{score !== 1 ? 's' : ''}
                 </span>
 
-                <div className="flex items-center flex-wrap gap-2">
+                <div className="opacity-0 group-hover/comment:opacity-100 flex items-center flex-wrap gap-2 transition-opacity">
                   <button 
                     onClick={() => setShowReplyBox(!showReplyBox)}
-                    className="opacity-0 group-hover/comment:opacity-100 flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 font-medium transition-opacity"
+                    className="flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 font-medium"
                     disabled={isReplying}
                   >
                     <MessageSquare className="w-3.5 h-3.5" />
                     Reply
                   </button>
+
 
                   <button
                     onClick={handleReport}
@@ -330,58 +334,6 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
           )}
         </div>
       </div>
-
-      {/* Report Modal */}
-      {showReportModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setShowReportModal(false)}>
-          <div
-            className="bg-white rounded-2xl w-full max-w-sm overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-200">
-              <h3 className="font-bold text-lg">Report Comment</h3>
-              <button onClick={() => setShowReportModal(false)} className="p-1 hover:bg-gray-100 rounded-full">
-                ✕
-              </button>
-            </div>
-            <div className="p-4 space-y-2">
-              {['Spam', 'Harassment', 'Hate speech', 'Misinformation', 'Breaks community rules', 'Other'].map((reason) => (
-                <label
-                  key={reason}
-                  className={`flex items-center gap-3 px-4 py-2.5 rounded-lg cursor-pointer border transition-colors ${
-                    reportReason === reason ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="reportReason"
-                    value={reason}
-                    checked={reportReason === reason}
-                    onChange={(e) => setReportReason(e.target.value)}
-                    className="accent-red-500"
-                  />
-                  <span className="text-sm">{reason}</span>
-                </label>
-              ))}
-            </div>
-            <div className="px-5 py-4 border-t border-gray-200 flex gap-2">
-              <button 
-                onClick={() => setShowReportModal(false)}
-                className="flex-1 px-4 py-2 border border-gray-300 rounded-full text-sm font-semibold hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button 
-                onClick={handleReportSubmit}
-                disabled={isReporting || !reportReason}
-                className="flex-1 px-4 py-2 bg-red-500 text-white rounded-full text-sm font-semibold hover:bg-red-600 disabled:bg-gray-400"
-              >
-                {isReporting ? 'Reporting...' : 'Submit Report'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

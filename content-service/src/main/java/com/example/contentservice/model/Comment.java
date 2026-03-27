@@ -12,8 +12,7 @@ import java.time.LocalDateTime;
         @Index(name = "idx_comment_post", columnList = "post_id"),
         @Index(name = "idx_comment_parent", columnList = "parent_id"),
         @Index(name = "idx_comment_author", columnList = "author"),
-        @Index(name = "idx_comment_created_at", columnList = "created_at"),
-        @Index(name = "idx_comment_subreddit_flagged", columnList = "subreddit,flagged")
+        @Index(name = "idx_comment_created_at", columnList = "created_at")
 })
 @Getter
 @Setter
@@ -30,6 +29,7 @@ public class Comment {
 
     @Column(nullable = false)
     private String subreddit;
+
     
     @Column(name = "parent_id")
     private String parentId; // null for top-level comments
@@ -72,7 +72,7 @@ public class Comment {
     @Column(nullable = false, columnDefinition = "integer default 0")
     private int reports = 0;
 
-    @Builder.Default
     @Column(columnDefinition = "TEXT")
-    private String reportReasons = "[]"; // JSON array of report reasons
+    private String reportReasons;
 }
+

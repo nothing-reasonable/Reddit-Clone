@@ -17,4 +17,7 @@ public interface ConversationRepository extends JpaRepository<Conversation, Long
 
     @Query("SELECT c FROM Conversation c WHERE c.user1 = :username OR c.user2 = :username ORDER BY c.updatedAt DESC")
     List<Conversation> findAllByParticipant(@Param("username") String username);
+
+    @Query("SELECT c FROM Conversation c WHERE c.user1 IN :participants OR c.user2 IN :participants ORDER BY c.updatedAt DESC")
+    List<Conversation> findAllByParticipants(@Param("participants") List<String> participants);
 }

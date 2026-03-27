@@ -27,10 +27,12 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/subreddits/user/communities").authenticated()
                 .requestMatchers(HttpMethod.POST, "/api/subreddits/*/presence").authenticated()
                 .requestMatchers(HttpMethod.GET, "/api/subreddits/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/subreddits/*/moderators/add/*").permitAll()
                 .anyRequest().authenticated()
             )
             .sessionManagement(sess -> sess.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
+
 
         return http.build();
     }
