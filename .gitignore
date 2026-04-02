@@ -90,9 +90,14 @@ out/
 
 
 # yml files:
-git rm --cached content-service/src/main/resources/application.yml
-git rm --cached docker-compose.yml
-git rm --cached mod-mail/src/main/resources/application.yaml
-git rm --cached moderation-service/src/main/resources/application.yaml
-git rm --cached subreddit-service/src/main/resources/application.yml
-git rm --cached user-service/src/main/resources/application.yml
+content-service/src/main/resources/application.yml
+docker-compose.yml
+mod-mail/src/main/resources/application.yaml
+moderation-service/src/main/resources/application.yaml
+subreddit-service/src/main/resources/application.yml
+user-service/src/main/resources/application.yml
+
+
+**/application.yml
+**/application.yaml
+docker-compose.yml
