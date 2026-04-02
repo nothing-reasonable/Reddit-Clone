@@ -134,6 +134,14 @@ public class SubredditController {
         return ResponseEntity.ok(new MemberCheckResponse(isMember));
     }
 
+    @PostMapping("/{name}/moderators/add/{username}")
+    public ResponseEntity<Void> addModerator(
+            @PathVariable String name,
+            @PathVariable String username) {
+        subredditService.addModerator(name, username);
+        return ResponseEntity.ok().build();
+    }
+
     @PostMapping("/{name}/presence")
     public ResponseEntity<Long> heartbeatPresence(
             @PathVariable String name,
