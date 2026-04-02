@@ -90,4 +90,9 @@ out/
 
 
 # yml files:
-*.yml
+content-service/src/main/resources/application.yml
+docker-compose.yml
+mod-mail/src/main/resources/application.yaml
+moderation-service/src/main/resources/application.yaml
+subreddit-service/src/main/resources/application.yml
+user-service/src/main/resources/application.yml
