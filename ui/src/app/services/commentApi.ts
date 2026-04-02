@@ -15,8 +15,6 @@ interface CommentDto {
   editedAt: string | null;
   removed: boolean;
   flagged: boolean;
-  reports: number;
-  reportReasons: string;
 }
 
 interface PaginatedResponse<T> {
@@ -48,8 +46,6 @@ function mapComment(dto: CommentDto): Comment {
     createdAt: parseApiTimestamp(dto.createdAt),
     removed: dto.removed,
     flagged: dto.flagged,
-    reports: dto.reports,
-    reportReasons: dto.reportReasons,
   };
 }
 

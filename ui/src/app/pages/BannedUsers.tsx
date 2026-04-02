@@ -3,38 +3,31 @@ import { useParams, Link, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { getSubredditByName } from '../services/subredditApi';
-import { getBannedUsers, banUser, unbanUser } from '../services/subredditApi';
-import type { BannedMemberDto } from '../services/subredditApi';
-import type { Subreddit } from '../types/domain';
+import type { BannedUser as BannedUserType, Subreddit } from '../types/domain';
 import { UserX, ArrowLeft, Plus, Trash2, Clock, AlertTriangle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 
 export default function BannedUsers() {
   const { subreddit } = useParams<{ subreddit: string }>();
-  const { user, token } = useAuth();
+  const { user } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
   const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [banned, setBanned] = useState<BannedMemberDto[]>([]);
+  const [banned, setBanned] = useState<BannedUserType[]>([]);
   const [showBanForm, setShowBanForm] = useState(false);
   const [newBan, setNewBan] = useState({ username: '', reason: '', permanent: true, duration: '30' });
 
   useEffect(() => {
-    if (!subreddit || !token) return;
+    if (!subreddit) return;
 
     setIsLoading(true);
-    Promise.all([
-      getSubredditByName(subreddit).catch(() => null),
-      getBannedUsers(token, subreddit).catch(() => [] as BannedMemberDto[]),
-    ])
-      .then(([sr, bans]) => {
-        setSubredditData(sr);
-        setBanned(bans);
-      })
+    getSubredditByName(subreddit)
+      .then((record) => setSubredditData(record))
+      .catch(() => setSubredditData(null))
       .finally(() => setIsLoading(false));
-  }, [subreddit, token]);
+  }, [subreddit]);
 
   const isModerator =
     isSubredditModerator(subreddit || '') ||
@@ -61,37 +54,31 @@ export default function BannedUsers() {
     );
   }
 
-  const handleBan = async () => {
+  const handleBan = () => {
     if (!newBan.username.trim() || !newBan.reason.trim()) {
       toast.error('Please fill in all fields');
       return;
     }
-    if (!token || !subreddit) return;
-    try {
-      const created = await banUser(token, subreddit, {
-        username: newBan.username,
-        reason: newBan.reason,
-        permanent: newBan.permanent,
-        durationDays: newBan.permanent ? undefined : parseInt(newBan.duration),
-      });
-      setBanned([...banned, created]);
-      setNewBan({ username: '', reason: '', permanent: true, duration: '30' });
-      setShowBanForm(false);
-      toast.success(`u/${newBan.username} has been banned from r/${subreddit}`);
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to ban user');
-    }
+    const ban = {
+      username: newBan.username,
+      subreddit: subreddit!,
+      reason: newBan.reason,
+      bannedBy: user!.username,
+      bannedAt: new Date(),
+      permanent: newBan.permanent,
+      ...(newBan.permanent ? {} : {
+        expiresAt: new Date(Date.now() + parseInt(newBan.duration) * 24 * 60 * 60 * 1000),
+      }),
+    };
+    setBanned([...banned, ban]);
+    setNewBan({ username: '', reason: '', permanent: true, duration: '30' });
+    setShowBanForm(false);
+    toast.success(`u/${newBan.username} has been banned from r/${subreddit}`);
   };
 
-  const handleUnban = async (username: string) => {
-    if (!token || !subreddit) return;
-    try {
-      await unbanUser(token, subreddit, username);
-      setBanned(banned.filter((b) => b.username !== username));
-      toast.success(`u/${username} has been unbanned from r/${subreddit}`);
-    } catch (e: any) {
-      toast.error(e.message || 'Failed to unban user');
-    }
+  const handleUnban = (username: string) => {
+    setBanned(banned.filter((b) => b.username !== username));
+    toast.success(`u/${username} has been unbanned from r/${subreddit}`);
   };
 
   return (
@@ -219,13 +206,13 @@ export default function BannedUsers() {
                     <div className="flex items-center gap-3 text-xs text-gray-500">
                       <span>Banned by u/{ban.bannedBy}</span>
                       <span>&#8226;</span>
-                      <span>{formatDistanceToNow(new Date(ban.bannedAt), { addSuffix: true })}</span>
+                      <span>{formatDistanceToNow(ban.bannedAt, { addSuffix: true })}</span>
                       {!ban.permanent && ban.expiresAt && (
                         <>
                           <span>&#8226;</span>
                           <span className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            Expires {formatDistanceToNow(new Date(ban.expiresAt), { addSuffix: true })}
+                            Expires {formatDistanceToNow(ban.expiresAt, { addSuffix: true })}
                           </span>
                         </>
                       )}

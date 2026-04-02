@@ -315,6 +315,39 @@ public class SubredditServiceImpl implements SubredditService {
         return username + ":" + clientSessionId;
     }
 
+    @Override
+    @Transactional
+    public void addModerator(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        var memberOpt = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username);
+        if (memberOpt.isPresent()) {
+            var member = memberOpt.get();
+            member.setRole(MemberRole.MODERATOR);
+            memberRepository.save(member);
+        } else {
+            SubredditMember member = SubredditMember.builder()
+                    .subredditId(subreddit.getId())
+                    .username(username)
+                    .role(MemberRole.MODERATOR)
+                    .joinedAt(LocalDateTime.now())
+                    .build();
+            memberRepository.save(member);
+        }
+    }
+
+    @Override
+    public List<String> getModeratedSubreddits(String username) {
+        return memberRepository.findByUsername(username).stream()
+                .filter(m -> m.getRole() == MemberRole.MODERATOR)
+                .map(m -> subredditRepository.findById(m.getSubredditId())
+                        .map(Subreddit::getName)
+                        .orElse(null))
+                .filter(name -> name != null)
+                .collect(Collectors.toList());
+    }
+
     // ───── Rules ─────
 
     @Override

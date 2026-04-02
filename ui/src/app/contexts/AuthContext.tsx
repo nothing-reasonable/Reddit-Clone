@@ -18,6 +18,8 @@ interface AuthContextType {
   signup: (username: string, email: string, password: string) => Promise<boolean>;
   logout: () => void;
   isAuthenticated: boolean;
+  unreadDMs: number;
+  setUnreadDMs: (count: number) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -32,6 +34,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return null;
     }
   });
+  const [unreadDMs, setUnreadDMs] = useState<number>(0);
+
 
   useEffect(() => {
     const storedToken = localStorage.getItem('jwtToken');
@@ -107,12 +111,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setToken(null);
     localStorage.removeItem('jwtToken');
     localStorage.removeItem('redditUser');
-    localStorage.removeItem('joinedSubreddits');
-    localStorage.removeItem('pendingModApplications');
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, token, login, signup, logout, isAuthenticated: !!token && !!user }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        login,
+        signup,
+        logout,
+        isAuthenticated: !!token && !!user,
+        unreadDMs,
+        setUnreadDMs,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

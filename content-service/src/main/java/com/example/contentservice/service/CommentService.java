@@ -19,9 +19,6 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 
 import java.util.List;
 import java.util.UUID;
@@ -47,17 +44,6 @@ public class CommentService {
                     log.error("Post not found: {}", postId);
                     return new ResourceNotFoundException("Post not found: " + postId);
                 });
-
-        // Reject comments on locked posts
-        if (post.isLocked()) {
-            throw new UnauthorizedActionException("Post is locked. New comments are not allowed.");
-        }
-
-        // Check if user is banned from the subreddit
-        if (subredditClient.isBanned(post.getSubreddit(), author)) {
-            log.warn("Banned user {} attempted to comment in r/{}", author, post.getSubreddit());
-            throw new UnauthorizedActionException("You are banned from r/" + post.getSubreddit() + " and cannot comment.");
-        }
 
         // Verify user is a member of the subreddit
         log.info("Checking if user {} is a member of r/{}", author, post.getSubreddit());
@@ -86,7 +72,6 @@ public class CommentService {
         Comment comment = Comment.builder()
                 .id(UUID.randomUUID().toString())
                 .postId(postId)
-                .subreddit(post.getSubreddit())
                 .parentId(request.getParentId())
                 .author(author)
                 .content(request.getContent())
@@ -275,38 +260,6 @@ public class CommentService {
         return commentRepository.findByParentId(parentCommentId).stream()
                 .map(this::mapToDto)
                 .toList();
-    }
-
-    @Transactional
-    public void reportComment(String postId, String commentId, String reason) {
-        Comment comment = commentRepository.findById(commentId)
-                .orElseThrow(() -> new ResourceNotFoundException("Comment not found: " + commentId));
-
-        if (!comment.getPostId().equals(postId)) {
-            throw new IllegalArgumentException("Comment does not belong to this post");
-        }
-
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            ArrayNode reasons = (ArrayNode) mapper.readTree(comment.getReportReasons() == null ? "[]" : comment.getReportReasons());
-            reasons.add(reason != null ? reason : "Reported");
-            comment.setReportReasons(mapper.writeValueAsString(reasons));
-        } catch (Exception e) {
-            log.error("Error parsing report reasons", e);
-            comment.setReportReasons("[]");
-        }
-
-        comment.setReports(comment.getReports() + 1);
-        comment.setFlagged(true);
-        commentRepository.save(comment);
-        log.info("Comment reported: {} on post {} with reason: {} (total reports: {})", commentId, postId, reason, comment.getReports());
-    }
-
-    @Transactional(readOnly = true)
-    public Page<CommentDto> getFlaggedComments(String subreddit, Pageable pageable) {
-        log.info("Fetching flagged comments for subreddit: {}", subreddit);
-        return commentRepository.findBySubredditAndFlaggedTrueAndRemovedFalse(subreddit, pageable)
-                .map(this::mapToDto);
     }
 
     private CommentDto mapToDto(Comment comment) {

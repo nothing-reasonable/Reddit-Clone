@@ -9,9 +9,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDistanceToNow, format } from 'date-fns';
+
 import * as yaml from 'js-yaml';
 import { testCustomRule, testSavedRules, getAutoModRules, createAutoModRule, updateAutoModRule, toggleAutoModRule, deleteAutoModRule, getAutoModHistory, getAutoModLogs } from '../services/moderationApi';
 import type { AutoModRuleDto, AutoModHistoryEntry } from '../services/moderationApi';
+
 import { getSubredditByName } from '../services/subredditApi';
 import type { Subreddit } from '../types/domain';
 
@@ -432,23 +434,27 @@ export default function AutoModSettings() {
       .finally(() => { if (!cancelled) setRulesLoading(false); });
     return () => { cancelled = true; };
   }, [subreddit, token]);
+  const [activeTab, setActiveTab] = useState<'rules' | 'history' | 'test' | 'logs'>('rules');
 
-  // Fetch AutoMod rule history
   const [history, setHistory] = useState<AutoModHistoryEntry[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   useEffect(() => {
-    if (!subreddit || !token) return;
+    if (!subreddit || !token || activeTab !== 'history') return;
     let cancelled = false;
     setHistoryLoading(true);
     getAutoModHistory(token, subreddit)
-      .then(data => { if (!cancelled) setHistory(data); })
-      .catch(() => { /* silently ignore */ })
-      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+      .then((entries) => {
+        if (!cancelled) setHistory(entries);
+      })
+      .catch(() => {
+        if (!cancelled) setHistory([]);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
     return () => { cancelled = true; };
-  }, [subreddit, token]);
-
-  const [activeTab, setActiveTab] = useState<'rules' | 'history' | 'test' | 'logs'>('rules');
-
+  }, [subreddit, token, activeTab]);
   // Rule editor
   const [showEditor, setShowEditor] = useState(false);
   const [editingRule, setEditingRule] = useState<RichAutoModRule | null>(null);
@@ -1093,7 +1099,7 @@ export default function AutoModSettings() {
                       </div>
                     )}
                     <div className="text-[11px] text-gray-400 mt-1">
-                      by u/{entry.moderator} &middot; {format(new Date(entry.timestamp), 'MMM d, yyyy h:mm a')} ({formatDistanceToNow(new Date(entry.timestamp), { addSuffix: true })})
+                      by u/{entry.moderator} &middot; {format(entry.timestamp, 'MMM d, yyyy h:mm a')} ({formatDistanceToNow(entry.timestamp, { addSuffix: true })})
                     </div>
                   </div>
                 </div>
