@@ -99,5 +99,5 @@ user-service/src/main/resources/application.yml
 
 
 **/application.yml
-**/application.yaml
 docker-compose.yml
+
