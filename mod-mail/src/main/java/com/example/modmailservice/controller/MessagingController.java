@@ -27,10 +27,11 @@ public class MessagingController {
     @PostMapping("/conversations")
     public ResponseEntity<ConversationDto> createConversation(
             @Valid @RequestBody CreateConversationRequest request,
-            Authentication auth) {
+            Authentication auth,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         String username = auth.getName();
         ConversationDto dto = messagingService.createConversation(
-                username, request.getRecipientName(), request.getBody(), request.getActingAsSubreddit());
+                username, request.getRecipientName(), request.getBody(), request.getActingAsSubreddit(), authorization);
         return ResponseEntity.status(HttpStatus.CREATED).body(dto);
     }
 
@@ -39,9 +40,10 @@ public class MessagingController {
      * View all conversations for the authenticated user.
      */
     @GetMapping("/conversations")
-    public ResponseEntity<List<ConversationDto>> getConversations(Authentication auth) {
+    public ResponseEntity<List<ConversationDto>> getConversations(Authentication auth,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         String username = auth.getName();
-        return ResponseEntity.ok(messagingService.getConversations(username));
+        return ResponseEntity.ok(messagingService.getConversations(username, authorization));
     }
 
     /**
@@ -51,9 +53,10 @@ public class MessagingController {
     @GetMapping("/conversations/{id}/messages")
     public ResponseEntity<List<MessageDto>> getMessages(
             @PathVariable Long id,
-            Authentication auth) {
+            Authentication auth,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         String username = auth.getName();
-        return ResponseEntity.ok(messagingService.getMessages(id, username));
+        return ResponseEntity.ok(messagingService.getMessages(id, username, authorization));
     }
 
     /**
@@ -64,9 +67,10 @@ public class MessagingController {
     public ResponseEntity<MessageDto> sendMessage(
             @PathVariable Long id,
             @Valid @RequestBody SendMessageRequest request,
-            Authentication auth) {
+            Authentication auth,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         String username = auth.getName();
-        MessageDto dto = messagingService.sendMessage(id, username, request.getBody());
+        MessageDto dto = messagingService.sendMessage(id, username, request.getBody(), authorization);
         return ResponseEntity.status(HttpStatus.CREATED).body(dto);
     }
 
@@ -77,9 +81,10 @@ public class MessagingController {
     @PutMapping("/conversations/{id}/close")
     public ResponseEntity<Void> closeConversation(
             @PathVariable Long id,
-            Authentication auth) {
+            Authentication auth,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         String username = auth.getName();
-        messagingService.closeConversation(id, username);
+        messagingService.closeConversation(id, username, authorization);
         return ResponseEntity.ok().build();
     }
 
@@ -90,29 +95,34 @@ public class MessagingController {
     @PostMapping("/applications")
     public ResponseEntity<ConversationDto> createApplication(
             @Valid @RequestBody CreateApplicationRequest request,
-            Authentication auth) {
+            Authentication auth,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         String username = auth.getName();
-        ConversationDto dto = messagingService.createModeratorApplication(username, request.getSubreddit());
+        ConversationDto dto = messagingService.createModeratorApplication(username, request.getSubreddit(),
+                authorization);
         return ResponseEntity.status(HttpStatus.CREATED).body(dto);
     }
 
     @PutMapping("/applications/{id}/accept")
-    public ResponseEntity<Void> acceptApplication(@PathVariable Long id, Authentication auth) {
+    public ResponseEntity<Void> acceptApplication(@PathVariable Long id, Authentication auth,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         String username = auth.getName();
-        messagingService.acceptModeratorApplication(id, username);
+        messagingService.acceptModeratorApplication(id, username, authorization);
         return ResponseEntity.ok().build();
     }
 
     @PutMapping("/applications/{id}/reject")
-    public ResponseEntity<Void> rejectApplication(@PathVariable Long id, Authentication auth) {
+    public ResponseEntity<Void> rejectApplication(@PathVariable Long id, Authentication auth,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         String username = auth.getName();
-        messagingService.rejectModeratorApplication(id, username);
+        messagingService.rejectModeratorApplication(id, username, authorization);
         return ResponseEntity.ok().build();
     }
 
     @GetMapping("/applications/me")
-    public ResponseEntity<java.util.List<String>> myApplications(Authentication auth) {
+    public ResponseEntity<java.util.List<String>> myApplications(Authentication auth,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
         String username = auth.getName();
-        return ResponseEntity.ok(messagingService.getApplicationsForUser(username));
+        return ResponseEntity.ok(messagingService.getApplicationsForUser(username, authorization));
     }
 }

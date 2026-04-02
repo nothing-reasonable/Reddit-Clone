@@ -7,7 +7,7 @@ spring:
   main:
     allow-bean-definition-overriding: true
   datasource:
-    url: jdbc:postgresql://localhost:5436/moddb
+    url: jdbc:postgresql://localhost:15436/moddb
     username: postgres
     password: postgres
     driver-class-name: org.postgresql.Driver

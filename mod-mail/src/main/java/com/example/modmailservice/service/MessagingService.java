@@ -27,11 +27,17 @@ public class MessagingService {
     }
 
     private List<String> getModeratedSubreddits(String username) {
+        return getModeratedSubreddits(username, null);
+    }
+
+    private List<String> getModeratedSubreddits(String username, String authorization) {
         try {
-            String[] subs = restClient.get()
-                    .uri("http://localhost:8082/api/subreddits/moderates/{username}", username)
-                    .retrieve()
-                    .body(String[].class);
+            var spec = restClient.get()
+                    .uri("http://localhost:8082/api/subreddits/moderates/{username}", username);
+            if (authorization != null && !authorization.isEmpty()) {
+                spec = spec.headers(h -> h.set("Authorization", authorization));
+            }
+            String[] subs = spec.retrieve().body(String[].class);
             return subs != null ? java.util.Arrays.asList(subs) : java.util.Collections.emptyList();
         } catch (Exception e) {
             return java.util.Collections.emptyList();
@@ -40,17 +46,21 @@ public class MessagingService {
 
     @Transactional
     public ConversationDto createConversation(String username, String recipient, String body,
-            String actingAsSubreddit) {
+            String actingAsSubreddit, String authorization) {
         String sender = username;
-        if (actingAsSubreddit != null && !actingAsSubreddit.trim().isEmpty()) {
-            List<String> moderated = getModeratedSubreddits(username);
-            if (!moderated.contains(actingAsSubreddit)) {
-                throw new AuthorizationException(403, "You are not a moderator of r/" + actingAsSubreddit);
+        // Normalize recipient and subreddit names: allow frontend to send 'r/name'
+        String recipientNorm = (recipient != null && recipient.startsWith("r/")) ? recipient.substring(2) : recipient;
+        String actingAsNorm = (actingAsSubreddit != null && actingAsSubreddit.startsWith("r/"))
+                ? actingAsSubreddit.substring(2)
+                : actingAsSubreddit;
+        if (actingAsNorm != null && !actingAsNorm.trim().isEmpty()) {
+            List<String> moderated = getModeratedSubreddits(username, authorization);
+            if (!moderated.contains(actingAsNorm)) {
+                throw new AuthorizationException(403, "You are not a moderator of r/" + actingAsNorm);
             }
-            sender = actingAsSubreddit;
+            sender = actingAsNorm;
         }
-
-        if (sender.equalsIgnoreCase(recipient)) {
+        if (sender.equalsIgnoreCase(recipientNorm)) {
             throw new IllegalArgumentException("Cannot message yourself");
         }
 
@@ -58,7 +68,7 @@ public class MessagingService {
         boolean recipientExists = false;
         try {
             Boolean isUser = restClient.get()
-                    .uri("http://localhost:8081/api/users/exists/{username}", recipient)
+                    .uri("http://localhost:8081/api/users/exists/{username}", recipientNorm)
                     .retrieve()
                     .body(Boolean.class);
             if (isUser != null && isUser)
@@ -68,10 +78,12 @@ public class MessagingService {
 
         if (!recipientExists) {
             try {
-                Boolean isSub = restClient.get()
-                        .uri("http://localhost:8082/api/subreddits/exists/{name}", recipient)
-                        .retrieve()
-                        .body(Boolean.class);
+                var spec = restClient.get()
+                        .uri("http://localhost:8082/api/subreddits/exists/{name}", recipientNorm);
+                if (authorization != null && !authorization.isEmpty()) {
+                    spec = spec.headers(h -> h.set("Authorization", authorization));
+                }
+                Boolean isSub = spec.retrieve().body(Boolean.class);
                 if (isSub != null && isSub)
                     recipientExists = true;
             } catch (Exception e) {
@@ -91,7 +103,7 @@ public class MessagingService {
         } else {
             conversation = new Conversation();
             conversation.setUser1(sender);
-            conversation.setUser2(recipient);
+            conversation.setUser2(recipientNorm);
             conversation.setStatus(ConversationStatus.OPEN);
         }
         conversation.setUpdatedAt(java.time.LocalDateTime.now());
@@ -101,22 +113,22 @@ public class MessagingService {
         Message message = new Message();
         message.setConversation(conversation);
         message.setSenderName(username);
-        if (actingAsSubreddit != null && !actingAsSubreddit.trim().isEmpty()) {
-            message.setActingAsSubreddit(actingAsSubreddit);
+        if (actingAsNorm != null && !actingAsNorm.trim().isEmpty()) {
+            message.setActingAsSubreddit(actingAsNorm);
         }
         message.setBody(body);
         messageRepo.save(message);
 
-        List<String> moderatedSubreddits = getModeratedSubreddits(username);
+        List<String> moderatedSubreddits = getModeratedSubreddits(username, authorization);
         return toDto(conversation, body, username, moderatedSubreddits);
     }
 
-    public List<ConversationDto> getConversations(String username) {
+    public List<ConversationDto> getConversations(String username, String authorization) {
         List<String> participants = new java.util.ArrayList<>();
         participants.add(username);
-        participants.addAll(getModeratedSubreddits(username));
+        participants.addAll(getModeratedSubreddits(username, authorization));
 
-        List<String> moderatedSubreddits = getModeratedSubreddits(username);
+        List<String> moderatedSubreddits = getModeratedSubreddits(username, authorization);
 
         return conversationRepo.findAllByParticipants(participants)
                 .stream()
@@ -125,9 +137,9 @@ public class MessagingService {
     }
 
     @Transactional
-    public List<MessageDto> getMessages(Long conversationId, String username) {
+    public List<MessageDto> getMessages(Long conversationId, String username, String authorization) {
         Conversation conversation = findConversationOrThrow(conversationId);
-        List<String> moderatedSubreddits = getModeratedSubreddits(username);
+        List<String> moderatedSubreddits = getModeratedSubreddits(username, authorization);
         requireAccess(conversation, username, moderatedSubreddits);
 
         // Mark as read
@@ -146,9 +158,9 @@ public class MessagingService {
     }
 
     @Transactional
-    public MessageDto sendMessage(Long conversationId, String senderName, String body) {
+    public MessageDto sendMessage(Long conversationId, String senderName, String body, String authorization) {
         Conversation conversation = findConversationOrThrow(conversationId);
-        List<String> moderated = getModeratedSubreddits(senderName);
+        List<String> moderated = getModeratedSubreddits(senderName, authorization);
         requireAccess(conversation, senderName, moderated);
 
         if (conversation.getStatus() == ConversationStatus.CLOSED) {
@@ -183,7 +195,7 @@ public class MessagingService {
     }
 
     @Transactional
-    public ConversationDto createModeratorApplication(String applicant, String subreddit) {
+    public ConversationDto createModeratorApplication(String applicant, String subreddit, String authorization) {
         // Create a conversation between the subreddit and a system recipient so
         // moderators
         // who moderate the subreddit will see it (conversation.user1 = subreddit)
@@ -209,16 +221,16 @@ public class MessagingService {
         message.setBody("Application from " + applicant + " to moderate r/" + subreddit + ". Accept or reject.");
         messageRepo.save(message);
 
-        List<String> moderatedSubreddits = getModeratedSubreddits(applicant);
+        List<String> moderatedSubreddits = getModeratedSubreddits(applicant, authorization);
         return toDto(conversation, message.getBody(), applicant, moderatedSubreddits);
     }
 
     @Transactional
-    public void acceptModeratorApplication(Long conversationId, String actingModerator) {
+    public void acceptModeratorApplication(Long conversationId, String actingModerator, String authorization) {
         Conversation conversation = findConversationOrThrow(conversationId);
         // verify actingModerator moderates the subreddit
         String subreddit = conversation.getUser1();
-        List<String> mods = getModeratedSubreddits(actingModerator);
+        List<String> mods = getModeratedSubreddits(actingModerator, authorization);
         if (!mods.contains(subreddit)) {
             throw new AuthorizationException(403, "Only subreddit moderators can accept applications");
         }
@@ -247,10 +259,12 @@ public class MessagingService {
             try {
                 String url = "http://localhost:8082/api/subreddits/" + subreddit + "/moderators/add/" + applicant;
                 System.out.println("[ModMail] Calling URL: " + url);
-                restClient.post()
-                        .uri("http://localhost:8082/api/subreddits/{sub}/moderators/add/{user}", subreddit, applicant)
-                        .retrieve()
-                        .body(Void.class);
+                var spec = restClient.post()
+                        .uri("http://localhost:8082/api/subreddits/{sub}/moderators/add/{user}", subreddit, applicant);
+                if (authorization != null && !authorization.isEmpty()) {
+                    spec = spec.headers(h -> h.set("Authorization", authorization));
+                }
+                spec.retrieve().body(Void.class);
                 System.out.println("[ModMail] Successfully promoted " + applicant + " to r/" + subreddit);
             } catch (Exception e) {
                 System.out.println("[ModMail] Failed to promote: " + e.getMessage());
@@ -266,10 +280,10 @@ public class MessagingService {
     }
 
     @Transactional
-    public void rejectModeratorApplication(Long conversationId, String actingModerator) {
+    public void rejectModeratorApplication(Long conversationId, String actingModerator, String authorization) {
         Conversation conversation = findConversationOrThrow(conversationId);
         String subreddit = conversation.getUser1();
-        List<String> mods = getModeratedSubreddits(actingModerator);
+        List<String> mods = getModeratedSubreddits(actingModerator, authorization);
         if (!mods.contains(subreddit)) {
             throw new AuthorizationException(403, "Only subreddit moderators can reject applications");
         }
@@ -277,7 +291,7 @@ public class MessagingService {
         conversationRepo.delete(conversation);
     }
 
-    public java.util.List<String> getApplicationsForUser(String username) {
+    public java.util.List<String> getApplicationsForUser(String username, String authorization) {
         java.util.List<String> result = new java.util.ArrayList<>();
         // Find all conversations where system is participant
         java.util.List<Conversation> convs = conversationRepo.findAllByParticipant("__SYSTEM__");
@@ -306,9 +320,9 @@ public class MessagingService {
     }
 
     @Transactional
-    public void closeConversation(Long conversationId, String username) {
+    public void closeConversation(Long conversationId, String username, String authorization) {
         Conversation conversation = findConversationOrThrow(conversationId);
-        List<String> moderatedSubreddits = getModeratedSubreddits(username);
+        List<String> moderatedSubreddits = getModeratedSubreddits(username, authorization);
         requireAccess(conversation, username, moderatedSubreddits);
         conversation.setStatus(ConversationStatus.CLOSED);
         conversationRepo.save(conversation);
