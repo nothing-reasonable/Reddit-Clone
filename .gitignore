@@ -86,6 +86,6 @@ local.properties
 out/
 
 # github
-.github/
+# .github/
 
 
