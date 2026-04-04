@@ -17,6 +17,48 @@ export default defineConfig({
     },
   },
 
+  // Mirror Docker nginx routing during local Vite development.
+  server: {
+    proxy: {
+      '/api/auth': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
+      '/api/users': {
+        target: 'http://localhost:8081',
+        changeOrigin: true,
+      },
+      '/api/subreddits': {
+        target: 'http://localhost:8082',
+        changeOrigin: true,
+      },
+      '/api/posts': {
+        target: 'http://localhost:8083',
+        changeOrigin: true,
+      },
+      '/api/messages': {
+        target: 'http://localhost:8085',
+        changeOrigin: true,
+      },
+      '/api/moderation': {
+        target: 'http://localhost:8084',
+        changeOrigin: true,
+      },
+      '/api/v1/r': {
+        target: 'http://localhost:8084',
+        changeOrigin: true,
+      },
+      '^/api/r/[^/]+/(modqueue|mod-actions|automod)': {
+        target: 'http://localhost:8084',
+        changeOrigin: true,
+      },
+      '/api/r': {
+        target: 'http://localhost:8083',
+        changeOrigin: true,
+      },
+    },
+  },
+
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
 })

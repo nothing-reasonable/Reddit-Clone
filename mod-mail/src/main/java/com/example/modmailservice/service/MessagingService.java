@@ -6,6 +6,7 @@ import com.example.modmailservice.dto.MessageDto;
 import com.example.modmailservice.model.*;
 import com.example.modmailservice.repository.ConversationRepository;
 import com.example.modmailservice.repository.MessageRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,13 +18,16 @@ public class MessagingService {
     private final ConversationRepository conversationRepo;
     private final MessageRepository messageRepo;
     private final org.springframework.web.client.RestClient restClient;
+    private final String userServiceBaseUrl;
 
     public MessagingService(ConversationRepository conversationRepo,
                             MessageRepository messageRepo,
-                            org.springframework.web.client.RestClient restClient) {
+                            org.springframework.web.client.RestClient restClient,
+                            @Value("${services.user.base-url:http://localhost:8081}") String userServiceBaseUrl) {
         this.conversationRepo = conversationRepo;
         this.messageRepo = messageRepo;
         this.restClient = restClient;
+        this.userServiceBaseUrl = userServiceBaseUrl;
     }
 
     @Transactional
@@ -34,7 +38,7 @@ public class MessagingService {
 
         // Verify recipient exists
         Boolean exists = restClient.get()
-                .uri("http://localhost:8081/api/users/exists/{username}", user2)
+            .uri(userServiceBaseUrl + "/api/users/exists/{username}", user2)
                 .retrieve()
                 .body(Boolean.class);
         
