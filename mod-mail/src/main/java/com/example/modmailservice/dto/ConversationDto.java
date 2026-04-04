@@ -1,6 +1,6 @@
 package com.example.modmailservice.dto;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 public class ConversationDto {
 
@@ -8,8 +8,8 @@ public class ConversationDto {
     private String otherUser;
     private String username;
     private String status;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
     private String lastMessagePreview;
     private boolean unread;
 
@@ -25,11 +25,11 @@ public class ConversationDto {
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 
-    public LocalDateTime getUpdatedAt() { return updatedAt; }
-    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+    public OffsetDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(OffsetDateTime updatedAt) { this.updatedAt = updatedAt; }
 
     public String getLastMessagePreview() { return lastMessagePreview; }
     public void setLastMessagePreview(String lastMessagePreview) { this.lastMessagePreview = lastMessagePreview; }

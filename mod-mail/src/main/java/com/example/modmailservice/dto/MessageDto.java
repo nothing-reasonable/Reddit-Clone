@@ -1,6 +1,6 @@
 package com.example.modmailservice.dto;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 public class MessageDto {
 
@@ -8,7 +8,7 @@ public class MessageDto {
     private String senderType;
     private String senderDisplayName;
     private String body;
-    private LocalDateTime createdAt;
+    private OffsetDateTime createdAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -22,6 +22,6 @@ public class MessageDto {
     public String getBody() { return body; }
     public void setBody(String body) { this.body = body; }
 
-    public LocalDateTime getCreatedAt() { return createdAt; }
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public OffsetDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(OffsetDateTime createdAt) { this.createdAt = createdAt; }
 }

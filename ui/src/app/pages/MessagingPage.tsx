@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, Send, User, ChevronRight, Search, Plus, X, MessageSquare, Filter } from 'lucide-react';
-import { Link, useNavigate } from 'react-router';
+import { useNavigate } from 'react-router';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,6 +13,34 @@ import {
   ConversationDto,
   MessageDto 
 } from '../services/messagingApi';
+
+const GMT_PLUS_6_TIMEZONE = 'Asia/Dhaka';
+
+function parseApiTimestamp(value: string): Date {
+  if (!value) return new Date(NaN);
+  const hasTimezone = /[zZ]|[+\-]\d{2}:\d{2}$/.test(value);
+  return new Date(hasTimezone ? value : `${value}+06:00`);
+}
+
+function renderMessageBodyWithLinks(body: string): React.ReactNode[] {
+  const linkRegex = /(https?:\/\/[^\s]+)/g;
+  return body.split(linkRegex).map((part, index) => {
+    if (/^https?:\/\//.test(part)) {
+      return (
+        <a
+          key={`${part}-${index}`}
+          href={part}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline break-all"
+        >
+          {part}
+        </a>
+      );
+    }
+    return <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>;
+  });
+}
 
 export default function MessagingPage() {
   const { user, token } = useAuth();
@@ -79,7 +107,10 @@ export default function MessagingPage() {
     try {
       if (!silent) setIsLoadingMessages(true);
       const data = await getConversationMessages(token, String(id));
-      setMessages(data);
+      const sorted = [...data].sort(
+        (a, b) => parseApiTimestamp(a.createdAt).getTime() - parseApiTimestamp(b.createdAt).getTime()
+      );
+      setMessages(sorted);
     } catch (err) {
       if (!silent) toast.error('Failed to load messages');
     } finally {
@@ -91,7 +122,9 @@ export default function MessagingPage() {
     if (!token || !selectedId || !replyText.trim()) return;
     try {
       const newMsg = await sendMessage(token, String(selectedId), replyText);
-      setMessages(prev => [...prev, newMsg]);
+      setMessages(prev => [...prev, newMsg].sort(
+        (a, b) => parseApiTimestamp(a.createdAt).getTime() - parseApiTimestamp(b.createdAt).getTime()
+      ));
       setReplyText('');
       fetchConversations(true); 
       setTimeout(() => scrollToBottom(), 50);
@@ -119,7 +152,7 @@ export default function MessagingPage() {
   };
 
   const filteredConversations = [...conversations].sort((a, b) => 
-    new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+    parseApiTimestamp(b.updatedAt).getTime() - parseApiTimestamp(a.updatedAt).getTime()
   );
 
   const selected = conversations.find(c => c.id === selectedId);
@@ -192,7 +225,7 @@ export default function MessagingPage() {
                             {conv.unread && <span className="ml-2 inline-block w-2 h-2 bg-orange-500 rounded-full" />}
                           </span>
                           <span className="text-[10px] text-gray-400">
-                            {formatDistanceToNow(new Date(conv.updatedAt), { addSuffix: true })}
+                            {formatDistanceToNow(parseApiTimestamp(conv.updatedAt), { addSuffix: true })}
                           </span>
                         </div>
                         <p className="text-xs text-gray-500 truncate mt-0.5">
@@ -240,9 +273,17 @@ export default function MessagingPage() {
                         <div className={`max-w-[70%] rounded-2xl p-3 shadow-sm ${
                           isMe ? 'bg-orange-500 text-white rounded-tr-none' : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none'
                         }`}>
-                          <p className="text-sm leading-relaxed">{msg.body}</p>
+                          <p className="text-sm leading-relaxed whitespace-pre-wrap">{renderMessageBodyWithLinks(msg.body)}</p>
                           <div className={`text-[10px] mt-1 ${isMe ? 'text-orange-100' : 'text-gray-400'}`}>
-                            {formatDistanceToNow(new Date(msg.createdAt), { addSuffix: true })}
+                            {new Intl.DateTimeFormat('en-GB', {
+                              timeZone: GMT_PLUS_6_TIMEZONE,
+                              hour: '2-digit',
+                              minute: '2-digit',
+                              day: '2-digit',
+                              month: 'short',
+                              year: 'numeric',
+                              hour12: false,
+                            }).format(parseApiTimestamp(msg.createdAt))}
                           </div>
                         </div>
                       </div>

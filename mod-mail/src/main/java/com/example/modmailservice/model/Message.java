@@ -2,10 +2,13 @@ package com.example.modmailservice.model;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 
 @Entity
 @Table(name = "messages")
 public class Message {
+
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Dhaka");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -26,7 +29,7 @@ public class Message {
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
+        createdAt = LocalDateTime.now(APP_ZONE);
     }
 
     // ── Getters & Setters ──

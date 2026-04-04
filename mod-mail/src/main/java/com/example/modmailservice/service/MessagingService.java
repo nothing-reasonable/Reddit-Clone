@@ -10,10 +10,15 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.List;
 
 @Service
 public class MessagingService {
+
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Dhaka");
 
     private final ConversationRepository conversationRepo;
     private final MessageRepository messageRepo;
@@ -58,8 +63,8 @@ public class MessagingService {
             conversation.setUser2(user2);
             conversation.setStatus(ConversationStatus.OPEN);
         }
-        conversation.setUpdatedAt(java.time.LocalDateTime.now());
-        conversation.setLastReadByUser1(java.time.LocalDateTime.now());
+        conversation.setUpdatedAt(LocalDateTime.now(APP_ZONE));
+        conversation.setLastReadByUser1(LocalDateTime.now(APP_ZONE));
         conversation = conversationRepo.save(conversation);
 
         Message message = new Message();
@@ -85,9 +90,9 @@ public class MessagingService {
 
         // Mark as read
         if (username.equalsIgnoreCase(conversation.getUser1())) {
-            conversation.setLastReadByUser1(java.time.LocalDateTime.now());
+            conversation.setLastReadByUser1(LocalDateTime.now(APP_ZONE));
         } else {
-            conversation.setLastReadByUser2(java.time.LocalDateTime.now());
+            conversation.setLastReadByUser2(LocalDateTime.now(APP_ZONE));
         }
         conversationRepo.save(conversation);
 
@@ -113,12 +118,12 @@ public class MessagingService {
         message = messageRepo.save(message);
 
         // Touch the conversation to update updatedAt
-        conversation.setUpdatedAt(java.time.LocalDateTime.now());
+        conversation.setUpdatedAt(LocalDateTime.now(APP_ZONE));
         // Update sender's last read so it doesn't show as unread for them
         if (senderName.equalsIgnoreCase(conversation.getUser1())) {
-            conversation.setLastReadByUser1(java.time.LocalDateTime.now());
+            conversation.setLastReadByUser1(LocalDateTime.now(APP_ZONE));
         } else {
-            conversation.setLastReadByUser2(java.time.LocalDateTime.now());
+            conversation.setLastReadByUser2(LocalDateTime.now(APP_ZONE));
         }
         conversationRepo.save(conversation);
 
@@ -152,8 +157,8 @@ public class MessagingService {
         dto.setOtherUser(otherUser);
         dto.setUsername(currentUsername);
         dto.setStatus(c.getStatus().name());
-        dto.setCreatedAt(c.getCreatedAt());
-        dto.setUpdatedAt(c.getUpdatedAt());
+        dto.setCreatedAt(toOffsetDateTime(c.getCreatedAt()));
+        dto.setUpdatedAt(toOffsetDateTime(c.getUpdatedAt()));
         dto.setLastMessagePreview(truncate(lastMessagePreview, 100));
 
         // Calculate unread
@@ -183,8 +188,8 @@ public class MessagingService {
         dto.setOtherUser(otherUser);
         dto.setUsername(currentUsername);
         dto.setStatus(c.getStatus().name());
-        dto.setCreatedAt(c.getCreatedAt());
-        dto.setUpdatedAt(lastActivity); // Use actual last message time
+        dto.setCreatedAt(toOffsetDateTime(c.getCreatedAt()));
+        dto.setUpdatedAt(toOffsetDateTime(lastActivity)); // Use actual last message time
         dto.setLastMessagePreview(truncate(preview, 100));
 
         // Calculate unread based on actual message time
@@ -203,8 +208,12 @@ public class MessagingService {
         dto.setSenderType("USER");
         dto.setSenderDisplayName(m.getSenderName());
         dto.setBody(m.getBody());
-        dto.setCreatedAt(m.getCreatedAt());
+        dto.setCreatedAt(toOffsetDateTime(m.getCreatedAt()));
         return dto;
+    }
+
+    private OffsetDateTime toOffsetDateTime(LocalDateTime value) {
+        return value == null ? null : value.atZone(APP_ZONE).toOffsetDateTime();
     }
 
     private String truncate(String text, int maxLength) {
