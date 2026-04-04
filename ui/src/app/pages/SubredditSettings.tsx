@@ -31,9 +31,13 @@ export default function SubredditSettings() {
       .finally(() => setIsLoading(false));
   }, [subreddit]);
 
+  const isListedModerator = (subredditData?.moderators ?? []).some(
+    (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
+  );
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
-    (user?.isModerator && subredditData?.moderators.includes(user.username));
+    isListedModerator;
 
   const [description, setDescription] = useState('');
   const [longDescription, setLongDescription] = useState('');

@@ -26,3 +26,5 @@ subreddit:
 services:
   moderation:
     base-url: ${MODERATION_SERVICE_URL:http://localhost:8084}
+  modmail:
+    base-url: ${MODMAIL_SERVICE_URL:http://localhost:8085}

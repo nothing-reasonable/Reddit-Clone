@@ -62,7 +62,14 @@ export default function ModQueue() {
     };
   }, [subreddit, token]);
 
-  const isModerator = !accessDenied && (isSubredditModerator(subreddit || '') || (user?.isModerator && subredditData?.moderators.includes(user.username)));
+  const isListedModerator = (subredditData?.moderators ?? []).some(
+    (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
+  );
+
+  const isModerator = !accessDenied && (
+    isSubredditModerator(subreddit || '') ||
+    isListedModerator
+  );
 
   const [filter, setFilter] = useState<'all' | 'posts' | 'comments' | 'users'>('all');
   const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());

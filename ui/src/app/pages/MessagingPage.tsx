@@ -13,6 +13,12 @@ import {
   ConversationDto,
   MessageDto 
 } from '../services/messagingApi';
+import {
+  getThreadMessages,
+  getUserModMailThreads,
+  sendThreadMessage,
+  type ModMailThreadDto
+} from '../services/modmailApi';
 
 const GMT_PLUS_6_TIMEZONE = 'Asia/Dhaka';
 
@@ -46,7 +52,12 @@ export default function MessagingPage() {
   const { user, token } = useAuth();
   const navigate = useNavigate();
 
-  const [conversations, setConversations] = useState<ConversationDto[]>([]);
+  type UnifiedConversation = ConversationDto & {
+    source: 'direct' | 'modmail';
+    threadId?: number;
+  };
+
+  const [conversations, setConversations] = useState<UnifiedConversation[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [messages, setMessages] = useState<MessageDto[]>([]);
   const [replyText, setReplyText] = useState('');
@@ -93,8 +104,30 @@ export default function MessagingPage() {
     if (!token) return;
     try {
       if (!silent) setIsLoading(true);
-      const data = await getUserConversations(token);
-      setConversations(data);
+      const [direct, modmail] = await Promise.all([
+        getUserConversations(token),
+        getUserModMailThreads(token)
+      ]);
+
+      const mappedModmail: UnifiedConversation[] = modmail.map((thread: ModMailThreadDto) => ({
+        id: -thread.id,
+        otherUser: `r/${thread.subredditName} mods`,
+        username: thread.username,
+        status: thread.status,
+        lastMessagePreview: thread.lastMessagePreview,
+        createdAt: thread.createdAt,
+        updatedAt: thread.updatedAt,
+        unread: thread.unread,
+        source: 'modmail',
+        threadId: thread.id
+      }));
+
+      const merged: UnifiedConversation[] = [
+        ...direct.map((conv) => ({ ...conv, source: 'direct' as const })),
+        ...mappedModmail
+      ];
+
+      setConversations(merged);
     } catch (err) {
       if (!silent) toast.error('Failed to load conversations');
     } finally {
@@ -106,7 +139,22 @@ export default function MessagingPage() {
     if (!token) return;
     try {
       if (!silent) setIsLoadingMessages(true);
-      const data = await getConversationMessages(token, String(id));
+      const selectedConv = conversations.find((conv) => conv.id === id);
+      let data: MessageDto[];
+
+      if (selectedConv?.source === 'modmail' && selectedConv.threadId) {
+        const modmailMessages = await getThreadMessages(token, selectedConv.threadId);
+        data = modmailMessages.map((message) => ({
+          id: message.id,
+          senderType: message.senderType,
+          senderDisplayName: message.senderDisplayName,
+          body: message.body,
+          createdAt: message.createdAt
+        }));
+      } else {
+        data = await getConversationMessages(token, String(id));
+      }
+
       const sorted = [...data].sort(
         (a, b) => parseApiTimestamp(a.createdAt).getTime() - parseApiTimestamp(b.createdAt).getTime()
       );
@@ -121,7 +169,11 @@ export default function MessagingPage() {
   const handleReply = async () => {
     if (!token || !selectedId || !replyText.trim()) return;
     try {
-      const newMsg = await sendMessage(token, String(selectedId), replyText);
+      const selectedConv = conversations.find((conv) => conv.id === selectedId);
+      const newMsg = selectedConv?.source === 'modmail' && selectedConv.threadId
+        ? await sendThreadMessage(token, selectedConv.threadId, replyText)
+        : await sendMessage(token, String(selectedId), replyText);
+
       setMessages(prev => [...prev, newMsg].sort(
         (a, b) => parseApiTimestamp(a.createdAt).getTime() - parseApiTimestamp(b.createdAt).getTime()
       ));
@@ -221,7 +273,7 @@ export default function MessagingPage() {
                       <div className="min-w-0 flex-1">
                         <div className="flex justify-between items-center">
                           <span className={`text-sm truncate ${conv.unread ? 'font-black text-gray-900' : 'font-bold text-gray-600'}`}>
-                            u/{conv.otherUser}
+                            {conv.source === 'modmail' ? conv.otherUser : `u/${conv.otherUser}`}
                             {conv.unread && <span className="ml-2 inline-block w-2 h-2 bg-orange-500 rounded-full" />}
                           </span>
                           <span className="text-[10px] text-gray-400">
@@ -251,7 +303,9 @@ export default function MessagingPage() {
                     <User className="w-4 h-4 text-orange-500" />
                   </div>
                   <div>
-                    <h2 className="font-bold text-sm">u/{selected?.otherUser}</h2>
+                    <h2 className="font-bold text-sm">
+                      {selected?.source === 'modmail' ? selected.otherUser : `u/${selected?.otherUser}`}
+                    </h2>
                     <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">
                       {selected?.status}
                     </span>

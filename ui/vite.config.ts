@@ -40,6 +40,10 @@ export default defineConfig({
         target: 'http://localhost:8085',
         changeOrigin: true,
       },
+      '/api/modmail': {
+        target: 'http://localhost:8085',
+        changeOrigin: true,
+      },
       '/api/moderation': {
         target: 'http://localhost:8084',
         changeOrigin: true,

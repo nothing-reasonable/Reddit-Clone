@@ -108,6 +108,49 @@ public class SubredditController {
         return new ResponseEntity<>(HttpStatus.CREATED);
     }
 
+    @PostMapping("/{name}/moderator-applications")
+    public ResponseEntity<Void> requestModeratorApplication(
+            @PathVariable String name,
+            Authentication authentication
+    ) {
+        subredditService.requestModeratorApplication(name, authentication.getName());
+        return new ResponseEntity<>(HttpStatus.CREATED);
+    }
+
+    @GetMapping("/{name}/moderator-applications")
+    public ResponseEntity<List<ModeratorApplicationDto>> getPendingModeratorApplications(
+            @PathVariable String name,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(subredditService.getPendingModeratorApplications(name, authentication.getName()));
+    }
+
+    @GetMapping("/{name}/moderator-applications/pending")
+    public ResponseEntity<Boolean> hasPendingModeratorApplication(
+            @PathVariable String name,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(subredditService.hasPendingModeratorApplication(name, authentication.getName()));
+    }
+
+    @PostMapping("/{name}/moderator-applications/{requestId}/approve")
+    public ResponseEntity<ModeratorApplicationDto> approveModeratorApplication(
+            @PathVariable String name,
+            @PathVariable Long requestId,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(subredditService.resolveModeratorApplication(name, requestId, true, authentication.getName()));
+    }
+
+    @PostMapping("/{name}/moderator-applications/{requestId}/reject")
+    public ResponseEntity<ModeratorApplicationDto> rejectModeratorApplication(
+            @PathVariable String name,
+            @PathVariable Long requestId,
+            Authentication authentication
+    ) {
+        return ResponseEntity.ok(subredditService.resolveModeratorApplication(name, requestId, false, authentication.getName()));
+    }
+
     @GetMapping("/{name}/members")
     public ResponseEntity<List<SubredditMemberDto>> getSubredditMembers(@PathVariable String name) {
         return ResponseEntity.ok(subredditService.getMembers(name));

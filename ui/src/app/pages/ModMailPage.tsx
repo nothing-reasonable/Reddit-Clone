@@ -1,24 +1,42 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams, Link, useNavigate } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { getSubredditByName } from '../services/subredditApi';
-import type { ModMail, Subreddit } from '../types/domain';
+import type { Subreddit } from '../types/domain';
 import { Mail, ArrowLeft, Send, Circle, CheckCircle2, Plus, X, Filter } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { toast } from 'sonner';
+import {
+  createModMailThread,
+  getSubredditModMailThreads,
+  getThreadMessages,
+  getUserModMailThreads,
+  markThreadRead,
+  sendThreadMessage,
+  type ModMailMessageDto,
+  type ModMailThreadDto
+} from '../services/modmailApi';
 
 type MailFilter = 'all' | 'unread' | 'read' | 'appeals' | 'reports';
 
+function parseApiTimestamp(value: string): Date {
+  if (!value) return new Date(NaN);
+  const hasTimezone = /[zZ]|[+\-]\d{2}:\d{2}$/.test(value);
+  return new Date(hasTimezone ? value : `${value}+06:00`);
+}
+
 export default function ModMailPage() {
   const { subreddit } = useParams<{ subreddit: string }>();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
   const navigate = useNavigate();
+
   const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
-  const [mails, setMails] = useState<ModMail[]>([]);
+  const [threads, setThreads] = useState<ModMailThreadDto[]>([]);
+  const [messagesByThread, setMessagesByThread] = useState<Record<number, ModMailMessageDto[]>>({});
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedMail, setSelectedMail] = useState<string | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<number | null>(null);
   const [replyText, setReplyText] = useState('');
   const [activeFilter, setActiveFilter] = useState<MailFilter>('all');
   const [showCompose, setShowCompose] = useState(false);
@@ -36,11 +54,148 @@ export default function ModMailPage() {
       .finally(() => setIsLoading(false));
   }, [subreddit]);
 
+  const isListedModerator = (subredditData?.moderators ?? []).some(
+    (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
+  );
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
-    (user?.isModerator && subredditData?.moderators.includes(user.username));
+    isListedModerator;
 
-  const isAuthenticated = !!user;
+  const isAuthenticated = !!user && !!token;
+
+  const loadThreads = async () => {
+    if (!token || !subreddit) return;
+    try {
+      const data = isModerator
+        ? await getSubredditModMailThreads(token, subreddit)
+        : await getUserModMailThreads(token);
+
+      const scoped = data.filter((thread) => thread.subredditName.toLowerCase() === subreddit.toLowerCase());
+      setThreads(scoped);
+      if (selectedThreadId && !scoped.some((thread) => thread.id === selectedThreadId)) {
+        setSelectedThreadId(null);
+      }
+    } catch {
+      toast.error('Failed to load modmail threads');
+    }
+  };
+
+  useEffect(() => {
+    if (!isAuthenticated || !subredditData || !subreddit) return;
+    loadThreads();
+    const interval = setInterval(loadThreads, 5000);
+    return () => clearInterval(interval);
+  }, [isAuthenticated, subredditData, subreddit, isModerator]);
+
+  const selectedThread = threads.find((thread) => thread.id === selectedThreadId) || null;
+  const selectedMessages = selectedThreadId ? messagesByThread[selectedThreadId] || [] : [];
+
+  const fetchSelectedMessages = async (threadId: number, silent = false) => {
+    if (!token) return;
+    try {
+      const messages = await getThreadMessages(token, threadId);
+      setMessagesByThread((prev) => ({ ...prev, [threadId]: messages }));
+      setThreads((prev) => prev.map((thread) => (thread.id === threadId ? { ...thread, unread: false } : thread)));
+      await markThreadRead(token, threadId);
+    } catch {
+      if (!silent) {
+        toast.error('Failed to load messages');
+      }
+    }
+  };
+
+  useEffect(() => {
+    if (!selectedThreadId || !token) return;
+
+    fetchSelectedMessages(selectedThreadId);
+    const interval = setInterval(() => {
+      fetchSelectedMessages(selectedThreadId, true);
+    }, 5000);
+
+    return () => clearInterval(interval);
+  }, [selectedThreadId, token]);
+
+  const filteredThreads = useMemo(() => {
+    const byFilter = threads.filter((thread) => {
+      const subject = thread.subject.toLowerCase();
+      switch (activeFilter) {
+        case 'unread':
+          return thread.unread;
+        case 'read':
+          return !thread.unread;
+        case 'appeals':
+          return subject.includes('removed') || subject.includes('unfairly') || subject.includes('appeal');
+        case 'reports':
+          return subject.includes('report') || subject.includes('harass');
+        default:
+          return true;
+      }
+    });
+
+    return byFilter.sort(
+      (a, b) => parseApiTimestamp(b.updatedAt).getTime() - parseApiTimestamp(a.updatedAt).getTime()
+    );
+  }, [activeFilter, threads]);
+
+  const handleOpenThread = (threadId: number) => {
+    setSelectedThreadId(threadId);
+    fetchSelectedMessages(threadId);
+  };
+
+  const handleReply = async () => {
+    if (!token || !selectedThreadId || !replyText.trim()) return;
+    try {
+      const sent = await sendThreadMessage(token, selectedThreadId, replyText);
+      setMessagesByThread((prev) => ({
+        ...prev,
+        [selectedThreadId]: [...(prev[selectedThreadId] || []), sent]
+      }));
+      setReplyText('');
+      await loadThreads();
+      toast.success('Reply sent');
+    } catch {
+      toast.error('Failed to send reply');
+    }
+  };
+
+  const handleComposeSend = async () => {
+    if (!token || !subreddit) return;
+    const effectiveRecipient = isModerator ? composeRecipient.trim() : (user?.username ?? '');
+
+    if (!effectiveRecipient || !composeSubject.trim() || !composeContent.trim()) {
+      toast.error('Please fill in all fields');
+      return;
+    }
+
+    try {
+      const created = await createModMailThread(
+        token,
+        subreddit,
+        effectiveRecipient,
+        composeSubject.trim(),
+        composeContent.trim()
+      );
+      setShowCompose(false);
+      setComposeRecipient('');
+      setComposeSubject('');
+      setComposeContent('');
+      await loadThreads();
+      setSelectedThreadId(created.id);
+      await fetchSelectedMessages(created.id);
+      toast.success('Message sent');
+    } catch {
+      toast.error('Failed to create modmail thread');
+    }
+  };
+
+  const filters: { id: MailFilter; label: string; count?: number }[] = [
+    { id: 'all', label: 'All', count: threads.length },
+    { id: 'unread', label: 'Unread', count: threads.filter((thread) => thread.unread).length },
+    { id: 'read', label: 'Read', count: threads.filter((thread) => !thread.unread).length },
+    { id: 'appeals', label: 'Appeals' },
+    { id: 'reports', label: 'Reports' }
+  ];
 
   if (isLoading) {
     return (
@@ -64,73 +219,6 @@ export default function ModMailPage() {
     );
   }
 
-  const selected = mails.find((m) => m.id === selectedMail);
-
-  // Filter mails based on user role
-  const userMailsOnly = isModerator ? mails : mails.filter((m) => m.from === user?.username);
-
-  // Further filter mails by active filter
-  const filteredMails = userMailsOnly.filter((m) => {
-    switch (activeFilter) {
-      case 'unread': return !m.read;
-      case 'read': return m.read;
-      case 'appeals': return m.subject.toLowerCase().includes('removed') || m.subject.toLowerCase().includes('unfairly') || m.subject.toLowerCase().includes('appeal');
-      case 'reports': return m.subject.toLowerCase().includes('report') || m.subject.toLowerCase().includes('harass');
-      default: return true;
-    }
-  });
-
-  const handleMarkRead = (id: string) => {
-    setMails(mails.map((m) => m.id === id ? { ...m, read: true } : m));
-  };
-
-  const handleReply = () => {
-    if (!replyText.trim() || !selectedMail) return;
-    setMails(mails.map((m) =>
-      m.id === selectedMail
-        ? {
-            ...m,
-            read: true,
-            replies: [...m.replies, { from: user!.username, content: replyText, timestamp: new Date() }],
-          }
-        : m
-    ));
-    setReplyText('');
-    toast.success('Reply sent');
-  };
-
-  const handleComposeSend = () => {
-    if (!composeRecipient.trim() || !composeSubject.trim() || !composeContent.trim()) {
-      toast.error('Please fill in all fields');
-      return;
-    }
-    const newMail = {
-      id: 'mm-' + Math.random().toString(36).substr(2, 9),
-      subreddit: subreddit!,
-      from: composeRecipient,
-      subject: composeSubject,
-      content: composeContent,
-      timestamp: new Date(),
-      read: true,
-      replies: [{ from: user!.username, content: composeContent, timestamp: new Date() }],
-    };
-    setMails([newMail, ...mails]);
-    setShowCompose(false);
-    setComposeRecipient('');
-    setComposeSubject('');
-    setComposeContent('');
-    setSelectedMail(newMail.id);
-    toast.success('Message sent');
-  };
-
-  const filters: { id: MailFilter; label: string; count?: number }[] = [
-    { id: 'all', label: 'All', count: mails.length },
-    { id: 'unread', label: 'Unread', count: mails.filter((m) => !m.read).length },
-    { id: 'read', label: 'Read', count: mails.filter((m) => m.read).length },
-    { id: 'appeals', label: 'Appeals' },
-    { id: 'reports', label: 'Reports' },
-  ];
-
   return (
     <div className="max-w-6xl mx-auto p-4">
       <div className="bg-white border border-gray-300 rounded mb-4 p-6">
@@ -144,29 +232,28 @@ export default function ModMailPage() {
               {isModerator ? 'Mod Mail' : 'Messages'}
             </h1>
             <p className="text-gray-600">
-              r/{subreddit} - {userMailsOnly.filter((m) => !m.read).length} unread
+              r/{subreddit} - {threads.filter((thread) => thread.unread).length} unread
               {!isModerator && ' (Your messages)'}
             </p>
           </div>
         </div>
 
-        {/* Filter Chips */}
         <div className="flex items-center gap-2 mt-4">
           <Filter className="w-4 h-4 text-gray-400" />
-          {filters.map((f) => (
+          {filters.map((filter) => (
             <button
-              key={f.id}
-              onClick={() => setActiveFilter(f.id)}
+              key={filter.id}
+              onClick={() => setActiveFilter(filter.id)}
               className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
-                activeFilter === f.id
+                activeFilter === filter.id
                   ? 'bg-blue-500 text-white'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              {f.label}
-              {f.count !== undefined && (
-                <span className={`ml-1 ${activeFilter === f.id ? 'opacity-80' : 'text-gray-400'}`}>
-                  ({f.count})
+              {filter.label}
+              {filter.count !== undefined && (
+                <span className={`ml-1 ${activeFilter === filter.id ? 'opacity-80' : 'text-gray-400'}`}>
+                  ({filter.count})
                 </span>
               )}
             </button>
@@ -175,49 +262,43 @@ export default function ModMailPage() {
       </div>
 
       <div className="flex gap-4 h-[calc(100vh-16rem)] relative">
-        {/* Mail List */}
         <div className="w-96 bg-white border border-gray-300 rounded overflow-y-auto shrink-0">
-          {filteredMails.length === 0 ? (
+          {filteredThreads.length === 0 ? (
             <div className="p-8 text-center text-gray-600">
               <Mail className="w-12 h-12 mx-auto mb-4 text-gray-300" />
               <p>No messages match this filter.</p>
             </div>
           ) : (
             <div className="divide-y divide-gray-200">
-              {filteredMails.map((mail) => (
+              {filteredThreads.map((thread) => (
                 <button
-                  key={mail.id}
-                  onClick={() => { setSelectedMail(mail.id); handleMarkRead(mail.id); }}
+                  key={thread.id}
+                  onClick={() => handleOpenThread(thread.id)}
                   className={`w-full text-left px-4 py-3 hover:bg-gray-50 transition-colors ${
-                    selectedMail === mail.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
-                  } ${!mail.read ? 'bg-blue-50/50' : ''}`}
+                    selectedThreadId === thread.id ? 'bg-blue-50 border-l-4 border-blue-500' : ''
+                  } ${thread.unread ? 'bg-blue-50/50' : ''}`}
                 >
                   <div className="flex items-start gap-2">
-                    {!mail.read ? (
+                    {thread.unread ? (
                       <Circle className="w-2.5 h-2.5 fill-blue-500 text-blue-500 mt-2 shrink-0" />
                     ) : (
                       <CheckCircle2 className="w-2.5 h-2.5 text-gray-300 mt-2 shrink-0" />
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between mb-1">
-                        <span className={`text-sm ${!mail.read ? 'font-bold' : 'font-medium'}`}>
-                          u/{mail.from}
+                        <span className={`text-sm ${thread.unread ? 'font-bold' : 'font-medium'}`}>
+                          u/{thread.username}
                         </span>
                         <span className="text-xs text-gray-400">
-                          {formatDistanceToNow(mail.timestamp, { addSuffix: true })}
+                          {formatDistanceToNow(parseApiTimestamp(thread.updatedAt), { addSuffix: true })}
                         </span>
                       </div>
-                      <div className={`text-sm ${!mail.read ? 'font-semibold' : ''} truncate`}>
-                        {mail.subject}
+                      <div className={`text-sm ${thread.unread ? 'font-semibold' : ''} truncate`}>
+                        {thread.subject}
                       </div>
                       <div className="text-xs text-gray-500 truncate mt-0.5">
-                        {mail.content}
+                        {thread.lastMessagePreview}
                       </div>
-                      {mail.replies.length > 0 && (
-                        <div className="text-xs text-gray-400 mt-1">
-                          {mail.replies.length} repl{mail.replies.length === 1 ? 'y' : 'ies'}
-                        </div>
-                      )}
                     </div>
                   </div>
                 </button>
@@ -226,70 +307,51 @@ export default function ModMailPage() {
           )}
         </div>
 
-        {/* Mail Detail */}
         <div className="flex-1 bg-white border border-gray-300 rounded overflow-y-auto">
-          {selected ? (
+          {selectedThread ? (
             <div className="flex flex-col h-full">
               <div className="px-6 py-4 border-b border-gray-300">
-                <h2 className="font-bold text-lg">{selected.subject}</h2>
+                <h2 className="font-bold text-lg">{selectedThread.subject}</h2>
                 <div className="text-sm text-gray-600 mt-1">
-                  From <Link to={`/user/${selected.from}`} className="text-blue-500 hover:underline">u/{selected.from}</Link>
-                  {' \u2022 '}
-                  {formatDistanceToNow(selected.timestamp, { addSuffix: true })}
+                  With <Link to={`/user/${selectedThread.username}`} className="text-blue-500 hover:underline">u/{selectedThread.username}</Link>
+                  {' • '}
+                  {formatDistanceToNow(parseApiTimestamp(selectedThread.updatedAt), { addSuffix: true })}
                 </div>
               </div>
 
               <div className="flex-1 overflow-y-auto p-6 space-y-4">
-                {/* Original Message - User style */}
-                <div className="flex gap-3">
-                  <div className="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center shrink-0">
-                    <span className="text-sm font-semibold">{selected.from.charAt(0).toUpperCase()}</span>
-                  </div>
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="font-semibold text-sm">u/{selected.from}</span>
-                      <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">User</span>
-                      <span className="text-xs text-gray-400">
-                        {formatDistanceToNow(selected.timestamp, { addSuffix: true })}
-                      </span>
-                    </div>
-                    <div className="bg-gray-50 rounded-lg p-3 text-sm border-l-4 border-gray-300">
-                      {selected.content}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Replies */}
-                {selected.replies.map((reply, idx) => {
-                  const isMod = subredditData?.moderators.includes(reply.from);
+                {selectedMessages.map((message) => {
+                  const isUser = message.senderType === 'USER';
+                  const display = isUser ? `u/${message.senderDisplayName}` : message.senderDisplayName;
                   return (
-                    <div key={idx} className="flex gap-3">
+                    <div key={message.id} className="flex gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${
-                        isMod ? 'bg-green-500' : 'bg-gray-200'
+                        isUser ? 'bg-gray-200' : 'bg-green-500'
                       }`}>
-                        <span className={`text-sm font-semibold ${isMod ? 'text-white' : ''}`}>
-                          {reply.from.charAt(0).toUpperCase()}
+                        <span className={`text-sm font-semibold ${isUser ? '' : 'text-white'}`}>
+                          {display.charAt(0).toUpperCase()}
                         </span>
                       </div>
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="font-semibold text-sm">u/{reply.from}</span>
-                          {isMod && (
-                            <span className="text-xs bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-semibold">MOD</span>
-                          )}
-                          {!isMod && (
-                            <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">User</span>
-                          )}
+                          <span className="font-semibold text-sm">{display}</span>
+                          <span className={`text-xs px-1.5 py-0.5 rounded ${
+                            isUser
+                              ? 'bg-gray-100 text-gray-500'
+                              : 'bg-green-100 text-green-700 font-semibold'
+                          }`}>
+                            {isUser ? 'User' : 'MOD'}
+                          </span>
                           <span className="text-xs text-gray-400">
-                            {formatDistanceToNow(reply.timestamp, { addSuffix: true })}
+                            {formatDistanceToNow(parseApiTimestamp(message.createdAt), { addSuffix: true })}
                           </span>
                         </div>
                         <div className={`rounded-lg p-3 text-sm ${
-                          isMod
-                            ? 'bg-green-50 border border-green-200 border-l-4 border-l-green-500'
-                            : 'bg-gray-50 border-l-4 border-gray-300'
+                          isUser
+                            ? 'bg-gray-50 border-l-4 border-gray-300'
+                            : 'bg-green-50 border border-green-200 border-l-4 border-l-green-500'
                         }`}>
-                          {reply.content}
+                          {message.body}
                         </div>
                       </div>
                     </div>
@@ -297,7 +359,6 @@ export default function ModMailPage() {
                 })}
               </div>
 
-              {/* Reply Box */}
               <div className="border-t border-gray-300 p-4">
                 <div className="flex gap-2">
                   <div className="w-8 h-8 bg-green-500 rounded-full flex items-center justify-center shrink-0">
@@ -307,10 +368,10 @@ export default function ModMailPage() {
                     <input
                       type="text"
                       value={replyText}
-                      onChange={(e) => setReplyText(e.target.value)}
-                      placeholder="Type your reply as moderator..."
+                      onChange={(event) => setReplyText(event.target.value)}
+                      placeholder={isModerator ? 'Type your reply as moderator...' : 'Type your message...'}
                       className="flex-1 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:border-blue-500"
-                      onKeyDown={(e) => e.key === 'Enter' && handleReply()}
+                      onKeyDown={(event) => event.key === 'Enter' && handleReply()}
                     />
                     <button
                       onClick={handleReply}
@@ -333,26 +394,27 @@ export default function ModMailPage() {
           )}
         </div>
 
-        {/* Floating Compose Button - only for moderators */}
-        {isModerator && (
-          <button
-            onClick={() => setShowCompose(true)}
-            className="absolute bottom-4 right-4 w-14 h-14 bg-green-500 text-white rounded-full shadow-lg hover:bg-green-600 flex items-center justify-center transition-transform hover:scale-105"
-            title="Compose New Message"
-          >
-            <Plus className="w-6 h-6" />
-          </button>
-        )}
+        <button
+          onClick={() => {
+            if (!isModerator && user?.username) {
+              setComposeRecipient(user.username);
+            }
+            setShowCompose(true);
+          }}
+          className="absolute bottom-4 right-188 w-14 h-14 bg-green-500 text-white rounded-full shadow-lg hover:bg-green-600 flex items-center justify-center transition-transform hover:scale-105"
+          title={isModerator ? 'Compose New Message' : 'Message Moderators'}
+        >
+          <Plus className="w-6 h-6" />
+        </button>
       </div>
 
-      {/* Compose Modal - only for moderators */}
-      {showCompose && isModerator && (
+      {showCompose && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg w-full max-w-lg overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-300 bg-green-50">
               <h2 className="font-bold text-lg flex items-center gap-2">
                 <Mail className="w-5 h-5 text-green-600" />
-                Compose New Message
+                {isModerator ? 'Compose New Message' : 'Message Moderators'}
               </h2>
               <button onClick={() => setShowCompose(false)} className="p-1 hover:bg-gray-200 rounded-full">
                 <X className="w-5 h-5 text-gray-500" />
@@ -364,9 +426,10 @@ export default function ModMailPage() {
                 <input
                   type="text"
                   value={composeRecipient}
-                  onChange={(e) => setComposeRecipient(e.target.value)}
-                  placeholder="e.g. username123"
-                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-green-500"
+                  onChange={(event) => setComposeRecipient(event.target.value)}
+                  placeholder={isModerator ? 'e.g. username123' : user?.username}
+                  disabled={!isModerator}
+                  className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-green-500 disabled:bg-gray-100 disabled:text-gray-500"
                 />
               </div>
               <div>
@@ -374,7 +437,7 @@ export default function ModMailPage() {
                 <input
                   type="text"
                   value={composeSubject}
-                  onChange={(e) => setComposeSubject(e.target.value)}
+                  onChange={(event) => setComposeSubject(event.target.value)}
                   placeholder="Message subject"
                   className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-green-500"
                 />
@@ -383,14 +446,16 @@ export default function ModMailPage() {
                 <label className="block text-sm font-medium mb-1.5">Message</label>
                 <textarea
                   value={composeContent}
-                  onChange={(e) => setComposeContent(e.target.value)}
+                  onChange={(event) => setComposeContent(event.target.value)}
                   placeholder="Write your message..."
                   rows={5}
                   className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:border-green-500"
                 />
               </div>
               <div className="text-xs text-gray-500">
-                Sending as moderator of r/{subreddit}
+                {isModerator
+                  ? `Sending as moderator of r/${subreddit}`
+                  : `Sending to r/${subreddit} mods as u/${user?.username}`}
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-300 flex gap-3 justify-end bg-gray-50">
