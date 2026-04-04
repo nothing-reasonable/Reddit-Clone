@@ -2,6 +2,7 @@ package com.example.modmailservice.model;
 
 import jakarta.persistence.*;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -10,6 +11,8 @@ import java.util.List;
         @UniqueConstraint(columnNames = {"user1", "user2"})
 })
 public class Conversation {
+
+    private static final ZoneId APP_ZONE = ZoneId.of("Asia/Dhaka");
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -43,13 +46,13 @@ public class Conversation {
 
     @PrePersist
     protected void onCreate() {
-        createdAt = LocalDateTime.now();
-        updatedAt = LocalDateTime.now();
+        createdAt = LocalDateTime.now(APP_ZONE);
+        updatedAt = LocalDateTime.now(APP_ZONE);
     }
 
     @PreUpdate
     protected void onUpdate() {
-        updatedAt = LocalDateTime.now();
+        updatedAt = LocalDateTime.now(APP_ZONE);
     }
 
     // ── Getters & Setters ──

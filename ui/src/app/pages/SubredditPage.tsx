@@ -15,6 +15,8 @@ import {
   leaveSubredditMembership,
   resignModeratorRole,
   requestSubredditTakeover,
+  requestModeratorApplication,
+  hasPendingModeratorApplication,
 } from '../services/subredditApi';
 import { getSubredditPosts } from '../services/contentApi';
 import type { Post, Subreddit } from '../types/domain';
@@ -34,13 +36,12 @@ export default function SubredditPage() {
   const [membershipUpdating, setMembershipUpdating] = useState(false);
   const [takeoverRequesting, setTakeoverRequesting] = useState(false);
   const [takeoverRequested, setTakeoverRequested] = useState(false);
+  const [hasPendingApplication, setHasPendingApplication] = useState(false);
   const { user, isAuthenticated, token } = useAuth();
   const {
     joinSubreddit,
     leaveSubreddit,
     isJoined,
-    applyAsModerator,
-    pendingModApplications,
   } = useSubreddit();
 
   useEffect(() => {
@@ -158,7 +159,34 @@ export default function SubredditPage() {
       (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
     ) ||
     false;
-  const hasPendingApplication = pendingModApplications.includes(subreddit || '');
+
+  useEffect(() => {
+    if (!subreddit || !isAuthenticated || !token || isModerator || !joined) {
+      setHasPendingApplication(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadPendingStatus = async () => {
+      try {
+        const pending = await hasPendingModeratorApplication(token, subreddit);
+        if (!cancelled) {
+          setHasPendingApplication(pending);
+        }
+      } catch {
+        if (!cancelled) {
+          setHasPendingApplication(false);
+        }
+      }
+    };
+
+    void loadPendingStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [subreddit, isAuthenticated, token, isModerator, joined]);
 
   const handleJoinLeave = async () => {
     if (!isAuthenticated || !token) {
@@ -249,11 +277,23 @@ export default function SubredditPage() {
     }
   };
 
-  const handleApplyModerator = () => {
-    if (!isAuthenticated) { toast.error('Please log in to apply as moderator'); return; }
-    if (!joined) { toast.error('You must be a member to apply as moderator'); return; }
-    applyAsModerator(subreddit || '');
-    toast.success('Application submitted!');
+  const handleApplyModerator = async () => {
+    if (!isAuthenticated || !token || !subreddit) {
+      toast.error('Please log in to apply as moderator');
+      return;
+    }
+    if (!joined) {
+      toast.error('You must be a member to apply as moderator');
+      return;
+    }
+
+    try {
+      await requestModeratorApplication(token, subreddit);
+      setHasPendingApplication(true);
+      toast.success('Application submitted!');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not submit moderator application.');
+    }
   };
 
   if (loadingSubreddit) {

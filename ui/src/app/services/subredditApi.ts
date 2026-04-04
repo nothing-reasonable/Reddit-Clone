@@ -338,3 +338,89 @@ export async function unbanUser(token: string, subredditName: string, username: 
   );
   if (!response.ok) throw new Error(await parseApiError(response));
 }
+
+export interface ModeratorApplicationDto {
+  id: number;
+  requesterUsername: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+  requestedAt: string;
+}
+
+export async function requestModeratorApplication(token: string, subredditName: string): Promise<void> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/moderator-applications`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+}
+
+export async function getPendingModeratorApplications(
+  token: string,
+  subredditName: string
+): Promise<ModeratorApplicationDto[]> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/moderator-applications`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  return (await response.json()) as ModeratorApplicationDto[];
+}
+
+export async function hasPendingModeratorApplication(
+  token: string,
+  subredditName: string
+): Promise<boolean> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/moderator-applications/pending`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  return (await response.json()) as boolean;
+}
+
+export async function resolveModeratorApplication(
+  token: string,
+  subredditName: string,
+  requestId: number,
+  decision: 'approve' | 'reject'
+): Promise<ModeratorApplicationDto> {
+  const response = await fetch(
+    `${SUBREDDIT_SERVICE_URL}/api/subreddits/${encodeURIComponent(subredditName)}/moderator-applications/${requestId}/${decision}`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(await parseApiError(response));
+  }
+
+  return (await response.json()) as ModeratorApplicationDto;
+}

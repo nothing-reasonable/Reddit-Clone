@@ -25,7 +25,11 @@ public interface SubredditService {
     SubredditMemberDto joinSubreddit(String subredditName, String username);
     void leaveSubreddit(String subredditName, String username);
     void resignModeratorRole(String subredditName, String username);
+    void requestModeratorApplication(String subredditName, String username);
     void requestTakeover(String subredditName, String username);
+    boolean hasPendingModeratorApplication(String subredditName, String username);
+    List<ModeratorApplicationDto> getPendingModeratorApplications(String subredditName, String moderatorUsername);
+    ModeratorApplicationDto resolveModeratorApplication(String subredditName, Long requestId, boolean approve, String moderatorUsername);
     List<SubredditMemberDto> getMembers(String subredditName);
     List<SubredditMemberDto> getUserCommunities(String username);
     boolean isMember(String subredditName, String username);

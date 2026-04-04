@@ -23,7 +23,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ModerationService {
 
-    @Value("${services.moderation.base-url:http://moderation-service:8084}")
+    @Value("${services.moderation.base-url:http://localhost:8084}")
     private String moderationServiceUrl;
 
     private static final String EVALUATE_ENDPOINT = "/api/internal/automod/evaluate";

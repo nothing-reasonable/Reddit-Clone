@@ -75,9 +75,13 @@ export default function ModLog() {
       .catch(() => setModLogs([]));
   }, [subreddit, token]);
 
+  const isListedModerator = (subredditData?.moderators ?? []).some(
+    (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
+  );
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
-    (user?.isModerator && subredditData?.moderators.includes(user.username));
+    isListedModerator;
 
   if (!isModerator) {
     return (

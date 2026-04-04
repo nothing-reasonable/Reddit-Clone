@@ -2,6 +2,7 @@ package com.example.contentservice.service;
 
 import com.example.contentservice.automod.AutoModContext;
 import com.example.contentservice.client.ModerationService;
+import com.example.contentservice.client.ModMailClient;
 import com.example.contentservice.client.SubredditClient;
 import com.example.contentservice.dto.CommentCreateRequest;
 import com.example.contentservice.dto.CommentDto;
@@ -36,6 +37,7 @@ public class CommentService {
     private final PostRepository postRepository;
     private final SubredditClient subredditClient;
     private final ModerationService moderationService;
+    private final ModMailClient modMailClient;
 
     @Transactional
     public CommentDto createComment(String postId, String author, CommentCreateRequest request) {
@@ -142,6 +144,12 @@ public class CommentService {
             if (result.isTriggered()) {
                 String action = result.getAction();
                 log.info("AutoMod rule '{}' triggered on comment {} - action: {}", rule.getName(), comment.getId(), action);
+
+                if (shouldNotifyUser(action, result.getMessage())) {
+                    String subject = "AutoMod action on your comment in r/" + subreddit;
+                    modMailClient.sendAutomodMessage(subreddit, comment.getAuthor(), subject, result.getMessage().trim());
+                }
+
                 if ("remove".equals(action)) {
                     comment.setRemoved(true);
                     log.info("Comment {} removed by AutoMod", comment.getId());
@@ -152,6 +160,17 @@ public class CommentService {
             }
         }
         commentRepository.save(comment);
+    }
+
+    private boolean shouldNotifyUser(String action, String message) {
+        if (action == null || message == null || message.isBlank()) {
+            return false;
+        }
+        String normalized = action.toLowerCase();
+        return normalized.equals("remove")
+                || normalized.equals("flag")
+                || normalized.equals("filter")
+                || normalized.equals("send_modmail");
     }
 
     /**

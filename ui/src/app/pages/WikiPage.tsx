@@ -27,9 +27,14 @@ export default function WikiPage() {
   const wikiPages: SubredditWikiPage[] = [];
   const currentSlug = page || 'index';
   const currentPage = wikiPages.find((p) => p.slug === currentSlug);
+
+  const isListedModerator = (subredditData?.moderators ?? []).some(
+    (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
+  );
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
-    (user?.isModerator && subredditData?.moderators.includes(user.username));
+    isListedModerator;
 
   if (isLoading) {
     return (

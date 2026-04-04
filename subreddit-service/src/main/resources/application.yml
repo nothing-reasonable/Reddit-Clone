@@ -25,3 +25,7 @@ spring:
 presence:
   ttl-ms: ${PRESENCE_TTL_MS:180000}
   key-prefix: ${PRESENCE_KEY_PREFIX:presence:subreddit:}
+
+services:
+  modmail:
+    base-url: ${MODMAIL_SERVICE_URL:http://localhost:8085}

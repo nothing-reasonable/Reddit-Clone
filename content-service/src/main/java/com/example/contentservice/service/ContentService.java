@@ -2,6 +2,7 @@ package com.example.contentservice.service;
 
 import com.example.contentservice.automod.AutoModContext;
 import com.example.contentservice.client.ModerationService;
+import com.example.contentservice.client.ModMailClient;
 import com.example.contentservice.dto.PostCreateRequest;
 import com.example.contentservice.dto.PostUpdateRequest;
 import com.example.contentservice.exception.ResourceNotFoundException;
@@ -34,6 +35,7 @@ public class ContentService {
     private final SavedPostRepository savedPostRepository;
     private final SubredditClient subredditClient;
     private final ModerationService moderationService;
+    private final ModMailClient modMailClient;
 
     public Page<Post> getGlobalPosts(Pageable pageable) {
         return postRepository.findByRemovedFalseExcludingAutoModFlaggedOnly(pageable);
@@ -123,6 +125,12 @@ public class ContentService {
             if (result.isTriggered()) {
                 String action = result.getAction();
                 log.info("AutoMod rule '{}' triggered on post {} — action: {}", rule.getName(), post.getId(), action);
+
+                if (shouldNotifyUser(action, result.getMessage())) {
+                    String subject = "AutoMod action on your post in r/" + subreddit;
+                    modMailClient.sendAutomodMessage(subreddit, post.getAuthor(), subject, result.getMessage().trim());
+                }
+
                 if ("remove".equals(action)) {
                     post.setRemoved(true);
                     log.info("Post {} removed by AutoMod", post.getId());
@@ -133,6 +141,17 @@ public class ContentService {
             }
         }
         postRepository.save(post);
+    }
+
+    private boolean shouldNotifyUser(String action, String message) {
+        if (action == null || message == null || message.isBlank()) {
+            return false;
+        }
+        String normalized = action.toLowerCase();
+        return normalized.equals("remove")
+                || normalized.equals("flag")
+                || normalized.equals("filter")
+                || normalized.equals("send_modmail");
     }
 
     /**

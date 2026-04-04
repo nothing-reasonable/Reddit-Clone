@@ -1,5 +1,6 @@
 package com.example.subredditservice.service;
 
+import com.example.subredditservice.client.ModMailClient;
 import com.example.subredditservice.dto.*;
 import com.example.subredditservice.exception.ResourceNotFoundException;
 import com.example.subredditservice.exception.SubredditAlreadyExistsException;
@@ -27,6 +28,7 @@ public class SubredditServiceImpl implements SubredditService {
     private final SubredditTakeoverRequestRepository takeoverRequestRepository;
     private final BannedMemberRepository bannedMemberRepository;
     private final PresenceService presenceService;
+    private final ModMailClient modMailClient;
 
     // ───── Subreddit CRUD ─────
 
@@ -256,6 +258,110 @@ public class SubredditServiceImpl implements SubredditService {
     }
 
     @Override
+    @Transactional
+    public void requestModeratorApplication(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        SubredditMember member = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username)
+                .orElseThrow(() -> new IllegalStateException("You must join r/" + subredditName + " before applying."));
+
+        if (member.getRole() == MemberRole.MODERATOR) {
+            throw new IllegalStateException("You are already a moderator of r/" + subredditName);
+        }
+
+        boolean alreadyPending = takeoverRequestRepository
+                .existsBySubredditIdAndRequesterUsernameAndStatus(
+                        subreddit.getId(),
+                        username,
+                        TakeoverRequestStatus.PENDING
+                );
+
+        if (alreadyPending) {
+            throw new IllegalStateException("You already have a pending moderator application for r/" + subredditName);
+        }
+
+        SubredditTakeoverRequest request = SubredditTakeoverRequest.builder()
+                .subredditId(subreddit.getId())
+                .requesterUsername(username)
+                .status(TakeoverRequestStatus.PENDING)
+                .requestedAt(LocalDateTime.now())
+                .build();
+
+        takeoverRequestRepository.save(request);
+    }
+
+    @Override
+    public boolean hasPendingModeratorApplication(String subredditName, String username) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        return takeoverRequestRepository.existsBySubredditIdAndRequesterUsernameAndStatus(
+                subreddit.getId(),
+                username,
+                TakeoverRequestStatus.PENDING
+        );
+    }
+
+    @Override
+    public List<ModeratorApplicationDto> getPendingModeratorApplications(String subredditName, String moderatorUsername) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        assertModeratorPermission(subreddit, moderatorUsername);
+
+        return takeoverRequestRepository
+                .findBySubredditIdAndStatusOrderByRequestedAtAsc(subreddit.getId(), TakeoverRequestStatus.PENDING)
+                .stream()
+                .map(this::mapModeratorApplicationToDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public ModeratorApplicationDto resolveModeratorApplication(String subredditName, Long requestId, boolean approve, String moderatorUsername) {
+        Subreddit subreddit = subredditRepository.findByName(subredditName)
+                .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
+
+        assertModeratorPermission(subreddit, moderatorUsername);
+
+        SubredditTakeoverRequest request = takeoverRequestRepository.findByIdAndSubredditId(requestId, subreddit.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Moderator application not found: " + requestId));
+
+        if (request.getStatus() != TakeoverRequestStatus.PENDING) {
+            throw new IllegalStateException("Moderator application is already resolved.");
+        }
+
+        if (approve) {
+            SubredditMember member = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), request.getRequesterUsername())
+                    .orElseGet(() -> SubredditMember.builder()
+                            .subredditId(subreddit.getId())
+                            .username(request.getRequesterUsername())
+                            .joinedAt(LocalDateTime.now())
+                            .build());
+
+            member.setRole(MemberRole.MODERATOR);
+            if (member.getJoinedAt() == null) {
+                member.setJoinedAt(LocalDateTime.now());
+            }
+            memberRepository.save(member);
+
+            if (subreddit.isArchived()) {
+                subreddit.setArchived(false);
+                subreddit.setUpdatedAt(LocalDateTime.now());
+                subredditRepository.save(subreddit);
+            }
+
+            request.setStatus(TakeoverRequestStatus.APPROVED);
+        } else {
+            request.setStatus(TakeoverRequestStatus.REJECTED);
+        }
+
+        SubredditTakeoverRequest saved = takeoverRequestRepository.save(request);
+        return mapModeratorApplicationToDto(saved);
+    }
+
+    @Override
     public List<SubredditMemberDto> getMembers(String subredditName) {
         Subreddit subreddit = subredditRepository.findByName(subredditName)
                 .orElseThrow(() -> new ResourceNotFoundException("Subreddit not found: r/" + subredditName));
@@ -429,6 +535,16 @@ public class SubredditServiceImpl implements SubredditService {
                 .build();
 
         BannedMember saved = bannedMemberRepository.save(ban);
+
+        String reason = request.getReason() == null || request.getReason().isBlank()
+            ? "No reason provided"
+            : request.getReason();
+        String subject = "You have been banned from r/" + subredditName;
+        String body = "You were banned from r/" + subredditName + " by moderator u/" + moderatorUsername + ".\n\n"
+            + "Reason: " + reason + "\n\n"
+            + (request.isPermanent() ? "Duration: Permanent" : "Duration: " + request.getDurationDays() + " day(s)");
+        modMailClient.sendBanMessage(subredditName, request.getUsername(), subject, body);
+
         return mapBanToDto(saved);
     }
 
@@ -530,6 +646,24 @@ public class SubredditServiceImpl implements SubredditService {
                 .permanent(ban.isPermanent())
                 .expiresAt(ban.getExpiresAt())
                 .bannedAt(ban.getBannedAt())
+                .build();
+    }
+
+    private void assertModeratorPermission(Subreddit subreddit, String username) {
+        SubredditMember moderatorMember = memberRepository.findBySubredditIdAndUsername(subreddit.getId(), username)
+                .orElseThrow(() -> new IllegalStateException("You are not a member of r/" + subreddit.getName()));
+
+        if (moderatorMember.getRole() != MemberRole.MODERATOR) {
+            throw new IllegalStateException("You are not a moderator of r/" + subreddit.getName());
+        }
+    }
+
+    private ModeratorApplicationDto mapModeratorApplicationToDto(SubredditTakeoverRequest request) {
+        return ModeratorApplicationDto.builder()
+                .id(request.getId())
+                .requesterUsername(request.getRequesterUsername())
+                .status(request.getStatus().name())
+                .requestedAt(request.getRequestedAt())
                 .build();
     }
 }

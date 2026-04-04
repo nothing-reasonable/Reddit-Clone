@@ -3,6 +3,11 @@ import { useParams, Link, useLocation } from 'react-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubreddit } from '../contexts/SubredditContext';
 import { getSubredditByName } from '../services/subredditApi';
+import {
+  getPendingModeratorApplications,
+  resolveModeratorApplication,
+  type ModeratorApplicationDto,
+} from '../services/subredditApi';
 import { getModQueue, getModLog } from '../services/moderationApi';
 import type { ModQueueItem } from '../services/moderationApi';
 import type { BannedUser, ModLogEntry, Subreddit } from '../types/domain';
@@ -12,6 +17,7 @@ import {
   ChevronRight, AlertTriangle
 } from 'lucide-react';
 import { useNavigate } from 'react-router';
+import { toast } from 'sonner';
 
 export default function ModTools() {
   const { subreddit } = useParams<{ subreddit: string }>();
@@ -22,6 +28,9 @@ export default function ModTools() {
   const [subredditData, setSubredditData] = useState<Subreddit | null>(null);
   const [queueItems, setQueueItems] = useState<ModQueueItem[]>([]);
   const [modLogs, setModLogs] = useState<ModLogEntry[]>([]);
+  const [applications, setApplications] = useState<ModeratorApplicationDto[]>([]);
+  const [appsLoading, setAppsLoading] = useState(false);
+  const [resolvingId, setResolvingId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const bannedUsers: BannedUser[] = [];
@@ -56,6 +65,47 @@ export default function ModTools() {
     getModLog(token, subreddit).then(setModLogs).catch(() => setModLogs([]));
   }, [subreddit, token]);
 
+  const loadApplications = async () => {
+    if (!subreddit || !token) return;
+
+    setAppsLoading(true);
+    try {
+      const pending = await getPendingModeratorApplications(token, subreddit);
+      setApplications(pending);
+    } catch {
+      setApplications([]);
+    } finally {
+      setAppsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadApplications();
+  }, [subreddit, token]);
+
+  const handleResolveApplication = async (requestId: number, decision: 'approve' | 'reject') => {
+    if (!subreddit || !token) return;
+
+    setResolvingId(requestId);
+    try {
+      await resolveModeratorApplication(token, subreddit, requestId, decision);
+      await loadApplications();
+
+      const refreshed = await getSubredditByName(subreddit);
+      setSubredditData(refreshed);
+
+      toast.success(
+        decision === 'approve'
+          ? 'Moderator application approved.'
+          : 'Moderator application rejected.'
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not resolve moderator application.');
+    } finally {
+      setResolvingId(null);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="max-w-3xl mx-auto p-4">
@@ -64,9 +114,13 @@ export default function ModTools() {
     );
   }
 
+  const isListedModerator = (subredditData?.moderators ?? []).some(
+    (moderator) => moderator.toLowerCase() === (user?.username || '').toLowerCase()
+  );
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
-    (user?.isModerator && subredditData?.moderators.includes(user.username));
+    isListedModerator;
 
   if (!isModerator) {
     return (
@@ -188,6 +242,62 @@ export default function ModTools() {
           <div className="text-2xl font-bold text-green-500">{subredditData?.moderators.length || 0}</div>
           <div className="text-sm text-gray-600">Moderators</div>
         </div>
+      </div>
+
+      {/* Moderator Applications */}
+      <div className="mb-4 bg-white border border-gray-300 rounded">
+        <div className="px-6 py-4 border-b border-gray-300 flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-lg">Moderator Applications</h2>
+            <p className="text-sm text-gray-500">Review pending applications and promote new moderators.</p>
+          </div>
+          <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-semibold border border-blue-200">
+            {applications.length} pending
+          </span>
+        </div>
+
+        {appsLoading ? (
+          <div className="px-6 py-5 text-sm text-gray-500">Loading moderator applications...</div>
+        ) : applications.length === 0 ? (
+          <div className="px-6 py-5 text-sm text-gray-500">No pending moderator applications.</div>
+        ) : (
+          <div className="divide-y divide-gray-200">
+            {applications.map((application) => {
+              const isResolving = resolvingId === application.id;
+              return (
+                <div key={application.id} className="px-6 py-4 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm">
+                      <span className="font-semibold">u/{application.requesterUsername}</span>
+                      <span className="text-gray-600"> requested moderator access</span>
+                    </div>
+                    <div className="text-xs text-gray-500 mt-1">
+                      Requested {new Date(application.requestedAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleResolveApplication(application.id, 'reject')}
+                      disabled={isResolving}
+                      className="px-3 py-1.5 rounded border border-red-300 text-red-700 text-sm font-medium hover:bg-red-50 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Reject
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleResolveApplication(application.id, 'approve')}
+                      disabled={isResolving}
+                      className="px-3 py-1.5 rounded bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                    >
+                      Approve
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Tools Grid */}

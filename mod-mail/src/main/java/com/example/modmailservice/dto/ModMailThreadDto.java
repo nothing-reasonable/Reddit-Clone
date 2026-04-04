@@ -2,25 +2,29 @@ package com.example.modmailservice.dto;
 
 import java.time.OffsetDateTime;
 
-public class ConversationDto {
+public class ModMailThreadDto {
 
     private Long id;
-    private String otherUser;
+    private String subredditName;
     private String username;
+    private String subject;
     private String status;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
-    private String lastMessagePreview;
     private boolean unread;
+    private String lastMessagePreview;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
 
-    public String getOtherUser() { return otherUser; }
-    public void setOtherUser(String otherUser) { this.otherUser = otherUser; }
+    public String getSubredditName() { return subredditName; }
+    public void setSubredditName(String subredditName) { this.subredditName = subredditName; }
 
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
+
+    public String getSubject() { return subject; }
+    public void setSubject(String subject) { this.subject = subject; }
 
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
@@ -31,9 +35,9 @@ public class ConversationDto {
     public OffsetDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(OffsetDateTime updatedAt) { this.updatedAt = updatedAt; }
 
-    public String getLastMessagePreview() { return lastMessagePreview; }
-    public void setLastMessagePreview(String lastMessagePreview) { this.lastMessagePreview = lastMessagePreview; }
-
     public boolean isUnread() { return unread; }
     public void setUnread(boolean unread) { this.unread = unread; }
+
+    public String getLastMessagePreview() { return lastMessagePreview; }
+    public void setLastMessagePreview(String lastMessagePreview) { this.lastMessagePreview = lastMessagePreview; }
 }
