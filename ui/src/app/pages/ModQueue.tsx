@@ -413,11 +413,15 @@ export default function ModQueue() {
                 </div>
                 <div className="flex flex-col gap-2">
                   <Link
-                    to={item.type === 'comment' ? `#` : `/r/${subreddit}/comments/${item.id}`}
+                    to={item.type === 'comment'
+                      ? (item.postId
+                        ? `/r/${subreddit}/comments/${item.postId}?comment=${encodeURIComponent(item.id)}`
+                        : `#`)
+                      : `/r/${subreddit}/comments/${item.id}`}
                     onClick={(e) => {
-                      if (item.type === 'comment') {
+                      if (item.type === 'comment' && !item.postId) {
                         e.preventDefault();
-                        toast.info('Comment viewing not yet implemented');
+                        toast.error('Unable to open comment: post context is missing');
                       }
                     }}
                     className="flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded text-sm hover:bg-gray-50"

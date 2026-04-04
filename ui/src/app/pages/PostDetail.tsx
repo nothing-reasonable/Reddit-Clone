@@ -1,4 +1,4 @@
-import { useParams, Link, useNavigate } from 'react-router';
+import { useParams, Link, useNavigate, useSearchParams } from 'react-router';
 import React, { useEffect, useState } from 'react';
 import { ArrowUp, ArrowDown, Share2, Bookmark, BookmarkCheck, Award, MoreHorizontal, Flag, Lock, Trash2, Pin } from 'lucide-react';
 import { formatNumber } from '../utils/format';
@@ -16,6 +16,7 @@ import { getComments, createComment, deleteComment } from '../services/commentAp
 
 export default function PostDetail() {
   const { postId, subreddit } = useParams<{ postId: string; subreddit: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, token, isAuthenticated } = useAuth();
   const { isModerator: isSubredditModerator } = useSubreddit();
@@ -32,6 +33,7 @@ export default function PostDetail() {
   const [isLocked, setIsLocked] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
   const [isRemoved, setIsRemoved] = useState(false);
+  const targetCommentId = searchParams.get('comment')?.trim() || null;
 
   useEffect(() => {
     let cancelled = false;
@@ -134,15 +136,29 @@ export default function PostDetail() {
     return () => clearInterval(interval);
   }, [postId]);
 
+  useEffect(() => {
+    if (!targetCommentId || comments.length === 0) return;
+
+    // Wait for nested comments to paint before trying to scroll.
+    const timer = window.setTimeout(() => {
+      const target = document.getElementById(`comment-${targetCommentId}`);
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 80);
+
+    return () => window.clearTimeout(timer);
+  }, [targetCommentId, comments]);
+
   const isModerator =
     isSubredditModerator(subreddit || '') ||
     backendModerators.some((moderator) => moderator === (user?.username || ''));
 
   if (loading) {
     return (
-      <div className="max-w-3xl mx-auto p-4">
-        <div className="bg-white border border-gray-300 rounded p-8 text-center">
-          <h1 className="text-2xl font-bold mb-2">Loading post...</h1>
+      <div className="max-w-5xl mx-auto p-4">
+        <div className="max-w-3xl">
+          <div className="bg-white border border-gray-300 rounded p-8 text-center">
+            <h1 className="text-2xl font-bold mb-2">Loading post...</h1>
+          </div>
         </div>
       </div>
     );
@@ -150,10 +166,12 @@ export default function PostDetail() {
 
   if (!post) {
     return (
-      <div className="max-w-3xl mx-auto p-4">
-        <div className="bg-white border border-gray-300 rounded p-8 text-center">
-          <h1 className="text-2xl font-bold mb-2">Post not found</h1>
-          <p className="text-gray-600">The post you&apos;re looking for does not exist.</p>
+      <div className="max-w-5xl mx-auto p-4">
+        <div className="max-w-3xl">
+          <div className="bg-white border border-gray-300 rounded p-8 text-center">
+            <h1 className="text-2xl font-bold mb-2">Post not found</h1>
+            <p className="text-gray-600">The post you&apos;re looking for does not exist.</p>
+          </div>
         </div>
       </div>
     );
@@ -273,7 +291,8 @@ export default function PostDetail() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
+    <div className="max-w-5xl mx-auto p-4">
+      <div className="max-w-3xl">
       <div className={`bg-white border border-gray-300 rounded mb-3 ${isRemoved ? 'opacity-50' : ''}`}>
         <div className="flex">
           <div className="flex flex-col items-center bg-gray-50 px-3 py-4 rounded-l gap-0.5">
@@ -520,10 +539,18 @@ export default function PostDetail() {
             <p className="text-gray-500 text-center py-8 text-sm">No comments yet. Be the first to share your thoughts!</p>
           ) : (
             comments.map((node: CommentNode) => (
-              <CommentComponent key={node.id} node={node} onReply={handleReply} onDelete={handleDeleteComment} isModerator={isModerator} />
+              <CommentComponent
+                key={node.id}
+                node={node}
+                onReply={handleReply}
+                onDelete={handleDeleteComment}
+                isModerator={isModerator}
+                highlightedCommentId={targetCommentId ?? undefined}
+              />
             ))
           )}
         </div>
+      </div>
       </div>
     </div>
   );

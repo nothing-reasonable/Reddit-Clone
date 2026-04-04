@@ -28,9 +28,10 @@ interface CommentComponentProps {
   onReply?: (parentId: string, content: string) => Promise<void>;
   onDelete?: (commentId: string) => Promise<void>;
   isModerator?: boolean;
+  highlightedCommentId?: string;
 }
 
-export default function CommentComponent({ node, onReply, onDelete, isModerator: _isModerator }: CommentComponentProps) {
+export default function CommentComponent({ node, onReply, onDelete, isModerator: _isModerator, highlightedCommentId }: CommentComponentProps) {
   const { user, token } = useAuth();
   const [userVote, setUserVote] = useState<-1 | 0 | 1>(user?.username === node.author ? 1 : 0);
   const [score, setScore] = useState(node.upvotes - node.downvotes);
@@ -148,7 +149,10 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
 
   if (node.removed) {
     return (
-      <div className="border-l-2 border-gray-200 pl-4 mb-3">
+      <div
+        id={`comment-${node.id}`}
+        className={`border-l-2 pl-4 mb-3 transition-colors ${highlightedCommentId === node.id ? 'border-blue-400 bg-blue-50/60 rounded-r' : 'border-gray-200'}`}
+      >
         <p className="text-xs text-red-500 italic">[Comment removed by moderator/user]</p>
         
         {/* Render child replies even if parent is deleted to keep thread intact */}
@@ -161,6 +165,7 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
                 onReply={onReply}
                 onDelete={onDelete}
                 isModerator={_isModerator}
+                highlightedCommentId={highlightedCommentId}
               />
             ))}
           </div>
@@ -170,7 +175,10 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
   }
 
   return (
-    <div className="border-l-2 border-gray-200 pl-3 mb-3 group/comment relative">
+    <div
+      id={`comment-${node.id}`}
+      className={`border-l-2 pl-3 mb-3 group/comment relative transition-colors ${highlightedCommentId === node.id ? 'border-blue-400 bg-blue-50/60 rounded-r' : 'border-gray-200'}`}
+    >
       <div className="flex items-start gap-2">
         <div className="flex flex-col items-center gap-0.5 mt-0.5">
           <button
@@ -322,6 +330,7 @@ export default function CommentComponent({ node, onReply, onDelete, isModerator:
                       onReply={onReply}
                       onDelete={onDelete}
                       isModerator={_isModerator}
+                      highlightedCommentId={highlightedCommentId}
                     />
                   ))}
                 </div>
