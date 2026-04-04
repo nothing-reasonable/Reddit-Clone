@@ -278,7 +278,9 @@ export default function PostCard({ post, showSubreddit = true }: PostCardProps) 
             </div>
 
             {/* Content Preview */}
-            <p className="text-sm text-gray-700 mb-2 line-clamp-3 leading-relaxed">{isDeleted ? '[deleted]' : post.content}</p>
+            <p className="text-sm text-gray-700 mb-2 line-clamp-3 leading-relaxed break-words [overflow-wrap:anywhere]">
+              {isDeleted ? '[deleted]' : post.content}
+            </p>
 
             {/* Action Buttons */}
             <div className="flex items-center gap-1 -ml-1.5 flex-wrap">

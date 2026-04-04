@@ -377,7 +377,9 @@ export default function PostDetail() {
               )}
             </div>
 
-            <div className="text-sm text-gray-800 mb-4 whitespace-pre-line leading-relaxed">{post.content}</div>
+            <div className="text-sm text-gray-800 mb-4 whitespace-pre-line leading-relaxed break-words [overflow-wrap:anywhere]">
+              {post.content}
+            </div>
 
             <div className="flex items-center gap-1 -ml-1.5 flex-wrap">
               <button
