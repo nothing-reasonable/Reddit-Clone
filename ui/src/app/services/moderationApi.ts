@@ -1,4 +1,4 @@
-const MODERATION_SERVICE_URL = 'http://localhost:8084';
+const MODERATION_SERVICE_URL = '';
 
 function parseApiTimestamp(timestamp: string): Date {
   const value = (timestamp || '').trim();

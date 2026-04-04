@@ -1,6 +1,6 @@
 import type { Subreddit, SubredditRule } from '../types/domain';
 
-const SUBREDDIT_SERVICE_URL = 'http://localhost:8082';
+const SUBREDDIT_SERVICE_URL = '';
 
 export type CommunityType = 'public' | 'restricted' | 'private';
 

@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, ReactNode, useEffect, useCallback } from 'react';
 
-const USER_SERVICE_URL = 'http://localhost:8081';
+const USER_SERVICE_URL = '';
 
 interface User {
   id: number;

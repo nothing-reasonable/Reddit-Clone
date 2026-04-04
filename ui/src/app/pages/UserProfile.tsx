@@ -20,7 +20,7 @@ export default function UserProfile() {
         .then((allPosts) => setUserPosts(allPosts.filter((p) => p.author === username)))
         .catch(() => setUserPosts([]));
 
-      fetch(`http://localhost:8081/api/users/${username}`)
+      fetch(`/api/users/${username}`)
         .then((res) => {
           if (!res.ok) throw new Error('Not found');
           return res.json();

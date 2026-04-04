@@ -1,4 +1,4 @@
-const MESSAGING_SERVICE_URL = 'http://localhost:8085';
+const MESSAGING_SERVICE_URL = '';
 
 interface ApiError {
   message?: string;

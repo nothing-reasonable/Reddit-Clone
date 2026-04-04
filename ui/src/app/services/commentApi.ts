@@ -1,6 +1,6 @@
 import type { Comment } from '../types/domain';
 
-const CONTENT_SERVICE_URL = 'http://localhost:8083';
+const CONTENT_SERVICE_URL = '';
 
 interface CommentDto {
   id: string;
