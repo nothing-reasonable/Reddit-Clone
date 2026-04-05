@@ -19,9 +19,9 @@ jobs:
             cd Reddit-Clone
             git pull origin main
             # 1. Stop and remove existing containers/networks
-            docker compose down
+            # docker compose down
             # 2. Build from scratch ignoring cache and start up
-            docker compose build --no-cache
-            docker compose up -d
+            # docker compose build --no-cache
+            docker compose up -d --build
             # 3. Optional: Remove unused images to save disk space
-            docker image prune -f
+            # docker image prune -f
