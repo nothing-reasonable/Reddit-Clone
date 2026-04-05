@@ -1,6 +1,7 @@
 package com.example.moderationservice.engine;
 
 import org.springframework.stereotype.Service;
+import lombok.extern.slf4j.Slf4j;
 import java.util.Locale;
 import java.util.List;
 import java.util.Map;
@@ -9,6 +10,7 @@ import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
 @Service
+@Slf4j
 public class AutoModEngine {
 
     /**
@@ -262,7 +264,8 @@ public class AutoModEngine {
                 matched = evaluateLength(body, entry.getValue(), false);
                 validCondition = true;
             } else if (fieldName.equals("reports")) {
-                matched = checkNumericThreshold(entry.getValue(), context.getReports() != null ? context.getReports() : 0);
+                Integer reportCount = context.getReports() != null ? context.getReports() : 0;
+                matched = checkNumericThreshold(entry.getValue(), reportCount);
                 validCondition = true;
             } else if (fieldName.equals("is_edited")) {
                 matched = evaluateBoolean(context.getIsEdited(), entry.getValue());

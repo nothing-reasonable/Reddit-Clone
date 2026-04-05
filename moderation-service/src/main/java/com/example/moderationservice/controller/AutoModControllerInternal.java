@@ -142,6 +142,11 @@ public class AutoModControllerInternal {
         if (isMod instanceof Boolean) context.setIsModerator((Boolean) isMod);
         else if (isMod instanceof String) context.setIsModerator(Boolean.parseBoolean((String) isMod));
 
+        // Parse reports for report-threshold-based rules (e.g., reports: >= 5)
+        Object reports = contextMap.get("reports");
+        if (reports instanceof Integer) context.setReports((Integer) reports);
+        else if (reports instanceof Number) context.setReports(((Number) reports).intValue());
+
         return context;
     }
 

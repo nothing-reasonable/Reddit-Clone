@@ -534,7 +534,7 @@ export default function SubredditPage() {
         <aside className="hidden lg:block w-80 shrink-0">
           {/* About Community */}
           <div className="bg-white border border-gray-300 rounded sticky top-16 overflow-hidden">
-            <div className="bg-blue-500 px-4 py-3">
+            <div className="bg-orange-500 px-4 py-3">
               <h2 className="font-bold text-white text-sm">About Community</h2>
             </div>
             <div className="p-4">
@@ -563,7 +563,7 @@ export default function SubredditPage() {
 
               <Link
                 to={`/submit?subreddit=${subreddit}`}
-                className="block w-full text-center px-4 py-1.5 bg-blue-500 text-white rounded-full text-sm font-semibold hover:bg-blue-600 mb-2"
+                className="block w-full text-center px-4 py-1.5 bg-orange-500 text-white rounded-full text-sm font-semibold hover:bg-orange-600 mb-2"
               >
                 Create Post
               </Link>
