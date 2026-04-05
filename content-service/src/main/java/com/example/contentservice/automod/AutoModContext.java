@@ -17,6 +17,7 @@ public class AutoModContext {
     private String submissionType; // "submission" or "comment"
     private boolean isModerator = false;
     private String flairText;
+    private int reports = 0;
 
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
@@ -45,6 +46,9 @@ public class AutoModContext {
     public String getFlairText() { return flairText; }
     public void setFlairText(String flairText) { this.flairText = flairText; }
 
+    public int getReports() { return reports; }
+    public void setReports(int reports) { this.reports = reports; }
+
     /**
      * Convert to Map for sending to moderation-service internal API.
      */
@@ -70,6 +74,7 @@ public class AutoModContext {
         if (authorKarma > 0)          map.put("author_karma", authorKarma);
         if (submissionType != null)   map.put("type", submissionType);
         if (flairText != null)        map.put("flair_text", flairText);
+        map.put("reports", reports);
         map.put("is_moderator", isModerator);
         return map;
     }

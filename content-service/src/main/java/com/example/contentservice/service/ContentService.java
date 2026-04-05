@@ -167,6 +167,7 @@ public class ContentService {
         // context.setId(post.getId());
         context.setSubmissionType(post.getType().name().toLowerCase());
         context.setFlairText(post.getFlair());
+        context.setReports(post.getReports());
 
         if (post.getUrl() != null && !post.getUrl().isEmpty()) {
             try {
@@ -309,6 +310,11 @@ public class ContentService {
         post.setReports(post.getReports() + 1);
         post.setFlagged(true);
         postRepository.save(post);
+        
+        // Re-evaluate AutoMod rules with updated report count
+        // This allows rules like "reports: >= 5" to trigger
+        log.info("Post {} now has {} reports. Re-evaluating AutoMod rules.", postId, post.getReports());
+        applyAutoModRules(post, post.getSubreddit());
     }
 
     public Page<Post> getReportedPosts(String subreddit, Pageable pageable) {

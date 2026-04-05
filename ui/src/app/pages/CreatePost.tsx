@@ -57,7 +57,7 @@ export default function CreatePost() {
         <div className="bg-white border border-gray-300 rounded p-8 text-center">
           <h1 className="text-2xl font-bold mb-2">Login Required</h1>
           <p className="text-gray-600 mb-4">You need to be logged in to create a post.</p>
-          <button onClick={() => navigate('/login')} className="px-6 py-2 bg-blue-500 text-white rounded-full font-semibold hover:bg-blue-600">
+          <button onClick={() => navigate('/login')} className="px-6 py-2 bg-orange-500 text-white rounded-full font-semibold hover:bg-orange-600">
             Log In
           </button>
         </div>
@@ -172,7 +172,7 @@ export default function CreatePost() {
               onClick={() => setPostType(tab.id)}
               className={`flex items-center justify-center gap-2 flex-1 py-3 text-sm font-semibold border-b-2 transition-colors ${
                 postType === tab.id
-                  ? 'border-blue-500 text-blue-500'
+                  ? 'border-orange-500 text-orange-500'
                   : 'border-transparent text-gray-500 hover:text-gray-700'
               }`}
             >
@@ -264,7 +264,7 @@ export default function CreatePost() {
             <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center">
               <Image className="w-8 h-8 mx-auto mb-2 text-gray-400" />
               <p className="text-sm text-gray-500 mb-2">Drag and drop images or</p>
-              <button type="button" className="px-4 py-1.5 bg-blue-500 text-white rounded-full text-sm font-semibold hover:bg-blue-600">
+              <button type="button" className="px-4 py-1.5 bg-orange-500 text-white rounded-full text-sm font-semibold hover:bg-orange-600">
                 Upload
               </button>
               <p className="text-xs text-gray-400 mt-2">Image upload is not available yet.</p>
@@ -304,7 +304,7 @@ export default function CreatePost() {
               className={`px-6 py-1.5 text-white rounded-full text-sm font-semibold ${
                 selectedSubIsArchived
                   ? 'bg-gray-400 cursor-not-allowed'
-                  : 'bg-blue-500 hover:bg-blue-600'
+                  : 'bg-orange-500 hover:bg-orange-600'
               }`}
             >
               Post

@@ -183,6 +183,7 @@ public class CommentService {
         context.setBody(comment.getContent());
         context.setAuthor(comment.getAuthor());
         context.setSubmissionType("comment");
+        context.setReports(comment.getReports());
 
         // Default values - real values would require user-service integration
         context.setAuthorAccountAge("30 days");
@@ -321,6 +322,13 @@ public class CommentService {
         comment.setFlagged(true);
         commentRepository.save(comment);
         log.info("Comment reported: {} on post {} with reason: {} (total reports: {})", commentId, postId, reason, comment.getReports());
+        
+        // Re-evaluate AutoMod rules with updated report count
+        // This allows rules like "reports: >= 5" to trigger
+        Post post = postRepository.findById(postId)
+                .orElseThrow(() -> new ResourceNotFoundException("Post not found: " + postId));
+        log.info("Comment {} now has {} reports. Re-evaluating AutoMod rules.", commentId, comment.getReports());
+        applyAutoModRules(comment, post);
     }
 
     @Transactional(readOnly = true)

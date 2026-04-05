@@ -78,7 +78,7 @@ export default function Home() {
             <div className="w-9 h-9 bg-gray-100 rounded-full flex items-center justify-center shrink-0">
               <Plus className="w-4 h-4 text-gray-400" />
             </div>
-            <div className="flex-1 bg-gray-50 rounded-full px-4 py-1.5 text-sm text-gray-500 hover:bg-white hover:border hover:border-blue-500 transition-colors border border-gray-200">
+            <div className="flex-1 bg-gray-50 rounded-full px-4 py-1.5 text-sm text-gray-500 hover:bg-white hover:border hover:border-orange-500 transition-colors border border-gray-200">
               Create Post
             </div>
           </Link>
