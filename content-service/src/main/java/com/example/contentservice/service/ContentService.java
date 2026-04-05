@@ -127,7 +127,9 @@ public class ContentService {
                 log.info("AutoMod rule '{}' triggered on post {} — action: {}", rule.getName(), post.getId(), action);
 
                 if (shouldNotifyUser(action, result.getMessage())) {
-                    String subject = "AutoMod action on your post in r/" + subreddit;
+                    String subject = (result.getSubject() != null && !result.getSubject().isBlank())
+                            ? result.getSubject().trim()
+                            : "AutoMod action on your post in r/" + subreddit;
                     modMailClient.sendAutomodMessage(subreddit, post.getAuthor(), subject, result.getMessage().trim());
                 }
 

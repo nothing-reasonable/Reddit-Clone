@@ -98,6 +98,23 @@ public class AutoModEngineTest {
         assertEquals("message TestUser", res.getMessage());
     }
 
+        @Test
+        void modmailSubject_isExposedWithPlaceholderReplacement() {
+                AutoModEngine engine = new AutoModEngine();
+                AutoModContext ctx = baseContext();
+
+                Map<String, Object> rule = Map.of(
+                                "title", List.of("hello"),
+                                "action", "filter",
+                                "modmail", "body for {{author}}",
+                                "modmail_subject", "AutoMod Alert: {{title}}"
+                );
+
+                AutoModResult res = engine.evaluateRule(rule, ctx);
+                assertTrue(res.isTriggered());
+                assertEquals("AutoMod Alert: Hello world", res.getSubject());
+        }
+
     @Test
     void placeholderReplacement_basicFields() {
         AutoModEngine engine = new AutoModEngine();

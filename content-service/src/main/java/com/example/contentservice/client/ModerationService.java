@@ -80,10 +80,10 @@ public class ModerationService {
             AutoModEvaluationResponse response = restTemplate.postForObject(url, entity, AutoModEvaluationResponse.class);
 
             log.debug("AutoMod rule evaluation result: triggered={}", response != null ? response.isTriggered() : "null");
-            return response != null ? response : new AutoModEvaluationResponse(false, "none", "");
+            return response != null ? response : new AutoModEvaluationResponse(false, "none", "", null);
         } catch (RestClientException e) {
             log.warn("Failed to evaluate AutoMod rule: {}", e.getMessage());
-            return new AutoModEvaluationResponse(false, "error", "Rule evaluation failed");
+            return new AutoModEvaluationResponse(false, "error", "Rule evaluation failed", null);
         }
     }
 
@@ -107,12 +107,14 @@ public class ModerationService {
         private boolean triggered;
         private String action;
         private String message;
+        private String subject;
 
         public AutoModEvaluationResponse() {}
-        public AutoModEvaluationResponse(boolean triggered, String action, String message) {
+        public AutoModEvaluationResponse(boolean triggered, String action, String message, String subject) {
             this.triggered = triggered;
             this.action = action;
             this.message = message;
+            this.subject = subject;
         }
         public boolean isTriggered() { return triggered; }
         public void setTriggered(boolean triggered) { this.triggered = triggered; }
@@ -120,5 +122,7 @@ public class ModerationService {
         public void setAction(String action) { this.action = action; }
         public String getMessage() { return message; }
         public void setMessage(String message) { this.message = message; }
+        public String getSubject() { return subject; }
+        public void setSubject(String subject) { this.subject = subject; }
     }
 }

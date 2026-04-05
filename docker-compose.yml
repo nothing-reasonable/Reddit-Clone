@@ -156,6 +156,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: postgres
       SUBREDDIT_SERVICE_URL: http://subreddit-service:8082
       MODERATION_SERVICE_URL: http://moderation-service:8084
+      MODMAIL_SERVICE_URL: http://mod-mail-service:8085
     depends_on:
       postgres-content:
         condition: service_healthy

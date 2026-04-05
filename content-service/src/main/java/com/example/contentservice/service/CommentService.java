@@ -146,7 +146,9 @@ public class CommentService {
                 log.info("AutoMod rule '{}' triggered on comment {} - action: {}", rule.getName(), comment.getId(), action);
 
                 if (shouldNotifyUser(action, result.getMessage())) {
-                    String subject = "AutoMod action on your comment in r/" + subreddit;
+                    String subject = (result.getSubject() != null && !result.getSubject().isBlank())
+                            ? result.getSubject().trim()
+                            : "AutoMod action on your comment in r/" + subreddit;
                     modMailClient.sendAutomodMessage(subreddit, comment.getAuthor(), subject, result.getMessage().trim());
                 }
 

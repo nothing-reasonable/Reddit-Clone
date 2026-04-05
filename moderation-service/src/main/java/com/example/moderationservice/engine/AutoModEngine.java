@@ -87,9 +87,20 @@ public class AutoModEngine {
             msgTemplate = rule.get("modmail").toString();
         }
 
+        // Subject precedence mirrors message body precedence where possible.
+        String subjectTemplate = null;
+        if (rule.get("message_subject") != null) {
+            subjectTemplate = rule.get("message_subject").toString();
+        } else if (rule.get("modmail_subject") != null) {
+            subjectTemplate = rule.get("modmail_subject").toString();
+        }
+
         boolean triggered = evaluateConditions(rule, context);
         if (triggered && msgTemplate != null) {
             result.setMessage(replacePlaceholders(msgTemplate, context));
+        }
+        if (triggered && subjectTemplate != null) {
+            result.setSubject(replacePlaceholders(subjectTemplate, context));
         }
         result.setTriggered(triggered);
         return result;
