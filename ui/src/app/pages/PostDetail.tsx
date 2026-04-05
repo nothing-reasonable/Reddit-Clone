@@ -349,7 +349,6 @@ export default function PostDetail() {
               <span>{formatDistanceToNow(post.createdAt, { addSuffix: true })}</span>
               {post.flagged && (
                 <span className="flex items-center gap-0.5 text-red-500 font-semibold">
-                  <Flag className="w-3 h-3" /> FLAGGED
                 </span>
               )}
               {isLocked && <span className="text-yellow-600 font-semibold">🔒 LOCKED</span>}
